@@ -28,32 +28,43 @@ SKETCH OF A SERVER IN C
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include "duckchat.h"
+
+#define PORT 4000 // this will have to be replaced by an argument
+#define BUFSIZE 2048
+
+
 int
 main(int argc, char **argv) {
     struct sockaddr_in serv_addr;
+    struct sockaddr_in remote_addr;
+    socklen_t addr_len = sizeof(remote_addr);
+    int rec_len;
+    int sockfd;
+    unsigned char buf[BUFSIZE]; // receive buffer
     // TODO parse command line arguments
 
-    if (( sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
-        perror("server: can't open stream socket");
+    if (( sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
+        perr r("server: can't open stream socket");
 
     bzero((char *)&serv_addr, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = htonl(INADDR_ANY); //host to network long
-    serv_addr.sin_port = htons(SERV_TCP_PORT); //host to network short
+    serv_addr.sin_port = htons(PORT); //host to network short
 
     if (bind(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
         perror("Server: can't bind local address");
 
-    listen(sockfd, 5);
 
     while(1) {
-        // accept a connect req from a client and return a new socket for that connection
-        newsockfd = accept(sockfd, (struct sockaddr *)&cli_addr, &clilen);
-
-        // receive request from client and send reply
-
-        close(newsockfd);
-
-
+        /* now loop, receiving data and printing what we received */
+        for (;;) {
+                printf("waiting on port %d\n", PORT);
+                recvlen = recvfrom(sockfd, buf, BUFSIZE, 0, (struct sockaddr *)&remote_addr, &addr_len);
+                printf("received %d bytes\n", recvlen);
+                if (recvlen > 0) {
+                        buf[rec_len] = 0;
+                        printf("received message: \"%s\"\n", buf);
+                }
+        }
 
 }
