@@ -5,8 +5,9 @@ Fall 2017
 */
 
 /* 
-client takes 3 command-line arguments:
-The first is theient starts, it automatically connects to the chat server, joins a channel called “Common”, and provides the user a prompt (i.e. the client must send the join message to join “Common”). When the user types/enters text at the prompt and hits 'Enter', the text is sent to the server (using the "say request" message), and the server relays the text to all users on the channel (including the speaker).
+The client program must take exactly three command-line arguments. The first is the host name where the server is running. The second argument is the port number on which the server is listening. The third argument is the user's username.
+
+When the client starts, it automatically connects to the chat server, joins a channel called “Common”, and provides the user a prompt (i.e. the client must send the join message to join “Common”). When the user types/enters text at the prompt and hits 'Enter', the text is sent to the server (using the "say request" message), and the server relays the text to all users on the channel (including the speaker).
 
 The exception is when the text begins with a forward slash ('/') character. In that case, the text is interpreted as a special command. These special commands are supported by the DuckChat client:
 
@@ -26,7 +27,9 @@ The third argument is the user's username.
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <netinet/in.h>
+#include <netdb.h>
 #include <arpa/inet.h>
 #include "duckchat.h"
 int
@@ -38,18 +41,17 @@ main(int argc, char **argv) {
     }
     // add error checking?? is it ok that these are upper case??
     // host name where server is running
-    char SERVER_HOST_IP_ADDRESS[64]; // is this buffer size ok??
+    char SERVER_HOST_NAME[64]; // is this buffer size ok??
     //TODO: check for "localhost" and convert to 127.00..??
-    strcpy(SERVER_HOST_IP_ADDRESS, argv[1]);
+    strcpy(SERVER_HOST_NAME, argv[1]);
     // port number on which server is listening
     int SERVER_PORT = atoi(argv[2]);
     // user's username
     char USERNAME[USERNAME_MAX];
     strcpy(USERNAME, argv[3]);
 
-
+    // set up CLIENT INFO and SOCKET
     struct sockaddr_in client_addr; // our local port information
-    struct sockaddr_in serv_addr; // remote server information
     int sockfd; // socket file descriptor
     if (( sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) { // attempt to open socket
         perror("Client: cannot open socket.");
@@ -69,20 +71,35 @@ main(int argc, char **argv) {
     }
 
     // specify SERVER INFO
+    struct sockaddr_in serv_addr; // remote server information
     bzero((char *)&serv_addr, sizeof(serv_addr));// set fields to NULL
     serv_addr.sin_family = AF_INET;
-    // USE NPE
-    inet_pton(AF_INET, SERVER_HOST_IP_ADDRESS, &(serv_addr.sin_addr)); // convert from char[] to network address
-    //serv_addr.sin_addr.s_addr = htonl(SERVER_HOST_IP_ADDRESS); do we need to get at sin_addr.s_addr???
     serv_addr.sin_port = htons(SERVER_PORT);
+    // USE NPE
+    //inet_pton(AF_INET, SERVER_HOST_IP_ADDRESS, &(serv_addr.sin_addr)); // convert from char[] to network address
+    //serv_addr.sin_addr.s_addr = htonl(SERVER_HOST_IP_ADDRESS); do we need to get at sin_addr.s_addr???
+    // get IP address from host name...
+    struct hostent *hostent_p;
+    hostent_p = gethostbyname(SERVER_HOST_NAME);//DNS lookup for host name -> IP
+    if (!hostent_p) {
+        fprintf(stderr, "Could not obtain address for %s\n", SERVER_HOST_NAME);
+        return 0;
+    } // and store it in the .sin_addr...
+    memcpy((void *)&serv_addr.sin_addr, hostent_p->h_addr_list[0], hostent_p->h_length);
 
+    /*   
     unsigned int alen = sizeof(client_addr);
     if (getsockname(sockfd, (struct sockaddr *)&client_addr, &alen) < 0) {
         perror("getsockname failed");
         return 0;
     }
     printf("bind complete.  Port number = %d\n", ntohs(client_addr.sin_port));
+    */    
     // send request to server, receive reply
-
+    char *test_message = "this is a test message\n";
+    if (sendto(sockfd, test_message, strlen(test_message), 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+        perror("sendto failed");
+        return 0;
+    }  
     close(sockfd);
 }
