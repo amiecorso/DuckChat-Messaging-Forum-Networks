@@ -67,6 +67,9 @@ main() {
                         buf[rec_len] = 0;
                         printf("received message: \"%s\"\n", buf);
                 }
+                sendto(sockfd, buf, strlen((const char *)buf), 0, (struct sockaddr *)&remote_addr, addr_len);
         }
+        // do we ever need to close the socket??
+        // close(sockfd); ??
     }
 }
