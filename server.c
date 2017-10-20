@@ -34,7 +34,8 @@ SKETCH OF A SERVER IN C
 
 
 int
-main(int argc, char **argv) {
+//main(int argc, char **argv) {
+main() {
     struct sockaddr_in serv_addr;
     struct sockaddr_in remote_addr;
     socklen_t addr_len = sizeof(remote_addr);
@@ -44,7 +45,7 @@ main(int argc, char **argv) {
     // TODO parse command line arguments
 
     if (( sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
-        perr r("server: can't open stream socket");
+        perror("server: can't open stream socket");
 
     bzero((char *)&serv_addr, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
@@ -59,12 +60,13 @@ main(int argc, char **argv) {
         /* now loop, receiving data and printing what we received */
         for (;;) {
                 printf("waiting on port %d\n", PORT);
-                recvlen = recvfrom(sockfd, buf, BUFSIZE, 0, (struct sockaddr *)&remote_addr, &addr_len);
-                printf("received %d bytes\n", recvlen);
-                if (recvlen > 0) {
+                rec_len = recvfrom(sockfd, buf, BUFSIZE, 0, (struct sockaddr *)&remote_addr, &addr_len);
+                printf("received %d bytes\n", rec_len);
+                if (rec_len > 0) {
+
                         buf[rec_len] = 0;
                         printf("received message: \"%s\"\n", buf);
                 }
         }
-
+    }
 }

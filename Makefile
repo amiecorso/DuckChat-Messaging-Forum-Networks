@@ -3,7 +3,7 @@ cc=gcc
 CFLAGS=-Wall -W -g -Werror 
 
 
-all: client 
+all: client server
 
 client: client.c raw.c
 	$(cc) client.c raw.c $(CFLAGS) -o client
