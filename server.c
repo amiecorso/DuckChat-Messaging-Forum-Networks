@@ -36,16 +36,15 @@ SKETCH OF A SERVER IN C
 int
 //main(int argc, char **argv) {
 main() {
-    struct sockaddr_in serv_addr;
-    struct sockaddr_in remote_addr;
+    struct sockaddr_in serv_addr, remote_addr;
+
     socklen_t addr_len = sizeof(remote_addr);
-    int rec_len;
-    int sockfd;
+    int rec_len, sockfd;
     unsigned char buf[BUFSIZE]; // receive buffer
-    // TODO parse command line arguments
+    // TODO parse command line arguments (host address, port num)
 
     if (( sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
-        perror("server: can't open stream socket");
+        perror("server: can't open socket");
 
     bzero((char *)&serv_addr, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;

@@ -19,7 +19,8 @@ The exception is when the text begins with a forward slash ('/') character. In t
 /switch channel: Switch to an existing named channel that user has already joined.host name where the server is running. 
 The second argument is the port number on which the server is listening. 
 The third argument is the user's username.
-
+TODO:
+- does gethostbyname() handle already-IP addresses??
 */
 
 #include <stdio.h>
@@ -96,6 +97,19 @@ main(int argc, char **argv) {
     printf("bind complete.  Port number = %d\n", ntohs(client_addr.sin_port));
     */    
     // send request to server, receive reply
+
+    // WHILE... until we hit exit.
+
+    // provide prompt to user
+	// read input as it is typed? (fgetc)
+	// when "enter" is detected, parse input
+	// if input did not start with a /, send as text to server
+	// if input DID start with a /, read the next word in the input.
+	// if the word matches one of our 7 cases, take the corresponding action
+		// package up an appropriate message to the server
+		// send such message to the server.
+
+
     char *test_message = "this is a test message\n";
     if (sendto(sockfd, test_message, strlen(test_message), 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
         perror("sendto failed");
