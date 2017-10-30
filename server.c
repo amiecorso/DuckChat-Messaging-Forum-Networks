@@ -320,16 +320,50 @@ int add_utoch(char *uname, char *cname)  // adds user to specified channel's lis
 
 int add_chtou(char *cname, char *uname)  // adds channel to specified user's list of channels
 {
-
+    // check if the channel exists
+    cnode *c_node = find_channel(cname);
+    if (c_node == NULL) {
+	fprintf(stderr, "Can't add channel \"%s\" to user \"%s\", channel doesn't exist.\n", cname, uname);
+	return -1;
+    }
+    channel *ch_p = c_node->c;
+    // check if the user exists
+    unode *u_node = find_user(uname);
+    if (u_node == NULL) {
+	fprintf(stderr, "Can't add channel \"%s\" to user \"%s\", user doesn't exist.\n", cname, uname);
+	return -1;
+    }
+    // get a handle on the user
+    user *user_p = u_node->u;
+    // check if the user is ALREADY subscribed to the channel
+    if (find_channel(cname, user_p->mychannels) != NULL) {
+	fprintf(stderr, "Channel \"%s\" already in \"%s\"'s list.\n", cname, uname);
+	return -1;
+    }
+    // if not, go ahead and add channel to user's list of channels
+    cnode *newlistnode = (cnode *)malloc(sizeof(cnode));
+    newlistnode->c = ch_p;           // populate data load
+    newlistnode->next = user_p->mychannels; // new node points at whatever head was pointing at
+    newlistnode->prev = NULL; // a new insertion always points back at nothing
+    if (user_p->mychannels != NULL) // only if the head wasn't NULL do we have a prev to update
+	(user_p->mychannels)->prev = newlistnode; 
+    user_p->mychannels = newlistnode; // finally, update the pos of head
+    return 0; // success! added user to a channel
+    
 }
 
 int rm_ufromch(char *uname, char *cname) // removes user from specified channel's list of users
 {
-
+    // attempt to find user in channel's list
+    // if found, remove user node from channel's list
+    // decrement count of users on channel
+ 	// SHOUDL THIS BE THE ONLY PLACE THIS HAPPENS??  i.e. should delete user call this function?
 }
 
 int rm_chfromu(char *cname, char *uname) // removes channel from specified user's list of channels
 {
+	// attempt to find channel in user's list
+	// if found, remove channel from user
 
 }
 
