@@ -24,7 +24,10 @@ TODO:
 
 #define UNUSED __attribute__((unused))
 // forward declarations
-typedef struct channel ch;
+typedef struct ch channel;
+typedef struct channelnode cnode;
+void add_channel(char *cname);
+void delete_channel(char *cname);
 int classify_input(char *in);
 int pack_request(request_t code, char *input, void **next_request);
 int do_switch(char *newchannel);
@@ -33,9 +36,18 @@ int do_leave(char *channel);
 int extract_ch(char *input, char *buf);
 int help_getword(char buf[], int i, char word[]);
 int help_strchr(char buf[], char c);
+cnode *find_channel(char *cname, cnode *head);  
+void delete_channel(char *cname);	          // frees channel data, deletes list node
+cnode *add_channel(char *cname);	  // creates (if needed) a new channel and installs in list
 
-struct channel {
-    char ch_name[32];
+struct ch {
+    char cname[32];
+};
+
+struct channelnode {
+    channel *c;
+    cnode *next;
+    cnode *prev;
 };
 
 // GLOBAL
@@ -43,8 +55,7 @@ char SERVER_HOST_NAME[64]; // is this buffer size ok??
 int SERVER_PORT; 
 char USERNAME[USERNAME_MAX];
 char active_ch[CHANNEL_MAX]; // currently active channel name (affected by switch requests)
-ch *channels; // keeps track of which channels a user is on (affected by leave and join requests)
-int channel_idx = 1; // because "Common" is at 0
+cnode *chead; // list of channels to which a user is subscribed (head of linked list)
 
 int
 main(int argc, char **argv) {
@@ -64,8 +75,8 @@ main(int argc, char **argv) {
     SERVER_PORT = atoi(argv[2]);
     strcpy(USERNAME, argv[3]);
     strcpy(active_ch, "Common"); // default to common
-    strcpy(channels[0].ch_name, "Common");
-    channels = (ch *)malloc(sizeof(ch) * 100); // max 100 channels
+    chead = NULL; // initialize listhead
+    add_channel("Common");
 
     // set up CLIENT INFO and SOCKET
     struct sockaddr_in client_addr; // our local port information
@@ -301,50 +312,38 @@ pack_request(request_t code, char *input, void **next_request)
 int
 do_switch(char *newchannel)
 {
-    int i;
-    for (i = 0; channels[i] != NULL; i++) {
-	if (strcmp(channels[i], newchannel) == 0) {
-	    strcpy(active_ch, newchannel); // update active channel
-	    printf("Switched to channel %s\n", newchannel);
-	    return 0; // indicates success
-	}
+    if (find_channel(newchannel, chead) == NULL) {
+	printf("You are not subscribed to channel %s\n", newchannel);
+	return -1;
     }
-    return -1; // if we didn't find the channel
+    strcpy(active_ch, newchannel);
+    return 0;
 }
 
 /* update channels to contain newchannel */
 int
 do_join(char *newchannel)
 {
-    int i;
-    int result;
-	printf("IN DO JOIN:\n");
-    for (i = 0; channels[i].ch_name != NULL; i++) {
-	result = strcmp(channels[i].ch_name, newchannel);
-	printf("i = %d\n", i);
-	printf("channels[i] = %s\n", channels[i]);
-	printf("newchannel = %s\n", newchannel);
-	printf("result = %d\n", result);
-	if (result == 0) {
-//	if (strcmp(channels[i], newchannel) == 0) {
-	    fprintf(stdout, "You're already subscribed to channel \"%s\"\n", newchannel);
-	    return -1;
-	}	
+    if (find_channel(newchannel, chead) == NULL) {
+	printf("Already subscribed to channel %s\n", newchannel);
+	return -1;
     }
-    if (channel_idx == 100) {
-        fprintf(stdout, "You've reached maximum number of channels.\n");
-        return -1;
-    }
-    channels[channel_idx++] = newchannel; //if all good, add the channel and increment index
-    strcpy(active_ch, newchannel); // most recently joined channel should be active
-    return 0; // successful join
+    add_channel(newchannel);
+    strcpy(active_ch, newchannel); // update active channel
+    return 0;
 }
 
 /* remove channel from channels */
 int
-do_leave(char *channel)
+do_leave(char *cname)
 {
-    printf("in do_leave: %s\n", channel);
+    if (find_channel(cname, chead) == NULL) {
+        printf("You are not subscribed to channel %s\n", cname);
+	return -1;
+    }
+    delete_channel(cname);
+    if (strcmp(active_ch, cname) == 0) // if they left the active channel
+        strcpy(active_ch, ""); // empty out the active channel
     return 0;
 }
 
@@ -425,4 +424,69 @@ int help_strchr(char buf[], char c) {
         if (buf[i] == c)
             return i;
     return -1;
+}
+
+
+
+
+cnode *add_channel(char *cname)	  // creates (if needed) a new channel and installs in list
+{
+    channel *newchannel = (channel *)malloc(sizeof(channel));
+    if (newchannel == NULL) {
+	fprintf(stderr, "Error malloc'ing new channel; %s\n", cname);
+	return NULL;
+    }
+    strcpy(newchannel->channelname, cname);    
+    // install in list of channels
+    cnode *newnode = (cnode *)malloc(sizeof(cnode)); // new channel list node
+    newnode->c = newchannel;
+    newnode->next = chead;
+    newnode->prev = NULL;
+    chead->prev = newnode;
+    chead = newnode;
+    return newnode; // finally, return pointer to new channel
+}
+
+
+void delete_channel(char *cname)	          // frees channel data, deletes list node
+{
+    // channel SHOULD have no more user's in list
+    cnode *c_node = find_channel(cname, chead);
+    if (c_node == NULL)
+	fprintf(stdout, "Channel %s doesn't exist.\n", cname);
+    channel *ch_p = c_node->c;
+    // make sure it's not "Common", which we need to keep
+    if (strcmp(ch_p->channelname, "Common") == 0) }
+	fprintf(stdout, "Preserving channel \"Common\".\n");
+	return;
+    }
+    // free the channel struct
+    free(ch_p);
+    // update linkages in the list: depends on case 
+    if ((c_node->prev == NULL) && (c_node->next == NULL)) { // case, ONLY NODE
+	chead = NULL; // just set the head to null
+    }
+    else if ((c_node->prev == NULL) && (c_node->next != NULL)) { // case: head, multiple nodes
+	chead = c_node->next; // head points to next down
+	(c_node->next)->prev == NULL; // new head points back to nothing
+    } else if ((c_node->prev != NULL) && (c_node->next != NULL)) { //case: middle of list
+	(c_node->next)->prev = c_node->prev; // bridge the gap
+	(c_node->prev)->next = c_node->next;
+    } else if ((c_node->prev != NULL) && (c_node->next == NULL)) { // case: tail, multiple nodes
+	(c_node->prev)->next = NULL; // tail points out to nothing
+    }
+    // finally, free the node in the clist   
+    free(c_node);
+}
+
+cnode *find_channel(char *cname, cnode *head)  // searches list for channel of given name and returns pointer to CHANNEL NODE
+{
+    cnode *nextnode = head; // start at the head
+    while (nextnode != NULL) { // while we've still got list to search...
+        if (strcmp((nextnode->c)->channelname, cname) == 0) { // if we've got a match
+	    return nextnode; // return pointer to this channel node
+        }
+        nextnode = nextnode->next; // move down the list
+    }
+    return NULL;
 }
