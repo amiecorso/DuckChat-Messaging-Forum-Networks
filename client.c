@@ -24,19 +24,27 @@ TODO:
 
 #define UNUSED __attribute__((unused))
 // forward declarations
-int help_getword(char buf[], int i, char word[]);
-int help_strchr(char buf[], char c);
+typedef struct channel ch;
 int classify_input(char *in);
 int pack_request(request_t code, char *input, void **next_request);
+int do_switch(char *newchannel);
+int do_join(char *newchannel);
+int do_leave(char *channel);
 int extract_ch(char *input, char *buf);
+int help_getword(char buf[], int i, char word[]);
+int help_strchr(char buf[], char c);
 
+struct channel {
+    char ch_name[32];
+};
 
 // GLOBAL
-char active_ch[CHANNEL_MAX]; // currently active channel name
 char SERVER_HOST_NAME[64]; // is this buffer size ok??
 int SERVER_PORT; 
 char USERNAME[USERNAME_MAX];
-
+char active_ch[CHANNEL_MAX]; // currently active channel name (affected by switch requests)
+ch *channels; // keeps track of which channels a user is on (affected by leave and join requests)
+int channel_idx = 1; // because "Common" is at 0
 
 int
 main(int argc, char **argv) {
@@ -56,6 +64,8 @@ main(int argc, char **argv) {
     SERVER_PORT = atoi(argv[2]);
     strcpy(USERNAME, argv[3]);
     strcpy(active_ch, "Common"); // default to common
+    strcpy(channels[0].ch_name, "Common");
+    channels = (ch *)malloc(sizeof(ch) * 100); // max 100 channels
 
     // set up CLIENT INFO and SOCKET
     struct sockaddr_in client_addr; // our local port information
@@ -110,13 +120,17 @@ main(int argc, char **argv) {
     }  
     
     /* MAIN WHILE LOOP */
-
+    // variables for USER INPUT
     char input_buf[1024] = {0}; // store gradual typed input
     int nextin;     // for storing chars 
     int buf_in = 0; // for storing chars
     request_t code; 
     void *next_request;
     int bytes_to_send;
+
+    // variables for SERVER INPUT
+    char servermsg[2048]; // need bigger??
+    int bytes_rec;
 
     // set up fields for SELECT()
     fd_set rfds;      // set of file descriptors for select() to watch
@@ -133,10 +147,8 @@ main(int argc, char **argv) {
     while (1) {
 	retval = select(fdmax + 1, &rfds, NULL, NULL, &tv);
 	if (retval > 0 && FD_ISSET(sockfd, &rfds)) { // was it the server?
-	    //response = recv(sockfd, buff...
-	// get reponse and use
-	// reset select fields?? are we going to go back into while loop??
-	printf("It was the server!");
+	    bytes_rec = recv(sockfd, (void *)&servermsg, 2048, 0);
+	    printf("Recieved %d bytes from server\n", bytes_rec);
 	}
 	else if (retval > 0 && FD_ISSET(0, &rfds)) { // was it the user typing?
 		while ((nextin = fgetc(stdin)) != '\n') { // waiting for enter key
@@ -147,16 +159,18 @@ main(int argc, char **argv) {
 		code = (request_t) classify_input(input_buf);
 		printf("\nrequest CODE = %d\n", code);
 		bytes_to_send = pack_request(code, input_buf, &next_request);
+		printf("pack_request returned: %d\n", bytes_to_send);
 		// SEND CASES
 		if (bytes_to_send == -1) {
 		    //problem
 		    printf("Invalid command.\n");
 		}
-		else if (bytes_to_send == 0) {
-			//switch case!
+		else if (bytes_to_send == 8) {
+		    printf("switchinnnnn\n");
 		}
 		else {
-		    if (sendto(sockfd, next_request, bytes_to_send, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+		    if (sendto(sockfd, next_request, bytes_to_send, 0, 
+				(struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
 			perror("sendto failed");
 			return 0; // DO WE WANT TO ACTUALLY RETURN?
 		    }  
@@ -203,7 +217,7 @@ classify_input(char *in)
 	if (strncmp(in, "/who", 4) == 0) // WHO
 	    return 6;
 	if (strncmp(in, "/switch", 7) == 0) // SWITCH --> create own return code, 8
-	    return 0;
+	    return 8;
 	printf("Unknown request.\n");
 	return -1;
 	}
@@ -223,8 +237,15 @@ pack_request(request_t code, char *input, void **next_request)
 	    return 4;
 	}
 	case 2: {// JOIN (req_channel[CHANNEL_MAX])
-	    if (extract_ch(input, channel_buf) == -1)
+	    printf("Packing join command\n");
+	    if (extract_ch(input, channel_buf) == -1) {
+		printf("Join: bad channel\n");
 		return -1;
+	    }
+            if (do_join(channel_buf) == -1) {
+		printf("do_join returned -1\n");
+	        return -1;
+	    }
 	    struct request_join *join_req  = (struct request_join *)malloc(sizeof(struct request_join));
 	    join_req->req_type = REQ_JOIN;
 	    strcpy(join_req->req_channel, channel_buf); // put the channel in the struct
@@ -233,6 +254,8 @@ pack_request(request_t code, char *input, void **next_request)
 	}
 	case 3: {// LEAVE (req_channel)
 	    if (extract_ch(input, channel_buf) == -1)
+		return -1;
+	    if (do_leave(channel_buf) == -1)
 		return -1;
 	    struct request_leave * leave_req = (struct request_leave *)malloc(sizeof(struct request_leave));
 	    leave_req->req_type = REQ_LEAVE;
@@ -265,11 +288,67 @@ pack_request(request_t code, char *input, void **next_request)
 	}
 	case 8: { // SWITCH (req_channel) ?? weird case
 	    if (extract_ch(input, channel_buf) == -1)
-		return 8;
+		return -1;
+	    if (do_switch(channel_buf) == -1)
+	        return -1;
+	    return 8;
 	}
     }
-    return -1;  // if no good code
+    return 0;
 }
+
+/* do_switch attempts to perform switch of active channel.  If user is requesting an invalid channel, returns -1 */
+int
+do_switch(char *newchannel)
+{
+    int i;
+    for (i = 0; channels[i] != NULL; i++) {
+	if (strcmp(channels[i], newchannel) == 0) {
+	    strcpy(active_ch, newchannel); // update active channel
+	    printf("Switched to channel %s\n", newchannel);
+	    return 0; // indicates success
+	}
+    }
+    return -1; // if we didn't find the channel
+}
+
+/* update channels to contain newchannel */
+int
+do_join(char *newchannel)
+{
+    int i;
+    int result;
+	printf("IN DO JOIN:\n");
+    for (i = 0; channels[i].ch_name != NULL; i++) {
+	result = strcmp(channels[i].ch_name, newchannel);
+	printf("i = %d\n", i);
+	printf("channels[i] = %s\n", channels[i]);
+	printf("newchannel = %s\n", newchannel);
+	printf("result = %d\n", result);
+	if (result == 0) {
+//	if (strcmp(channels[i], newchannel) == 0) {
+	    fprintf(stdout, "You're already subscribed to channel \"%s\"\n", newchannel);
+	    return -1;
+	}	
+    }
+    if (channel_idx == 100) {
+        fprintf(stdout, "You've reached maximum number of channels.\n");
+        return -1;
+    }
+    channels[channel_idx++] = newchannel; //if all good, add the channel and increment index
+    strcpy(active_ch, newchannel); // most recently joined channel should be active
+    return 0; // successful join
+}
+
+/* remove channel from channels */
+int
+do_leave(char *channel)
+{
+    printf("in do_leave: %s\n", channel);
+    return 0;
+}
+
+
 
 /* extracts second word from input and stores in buf.
 Returns 0 if successful, -1 if unsuccessful */
@@ -277,14 +356,17 @@ int
 extract_ch(char *input, char *buf)
 {
     int w = 0;
-    char word[32]; // word buffer
+    char word[1024]; // word buffer
     w = help_getword(input, w, word); // this should pass the command ("join")
-    if (w == -1) {
+    if (w == -1) { // if we're already at the end....
 	printf("Improper format: missing channel.\n");
 	return -1;
     }
     w = help_getword(input, w, word); // now we SHOULD have a channel in here. (Server will let us know if it's legit)
-    // should we check for EXTRA args here?? (like if there are more words to grab?)
+    if (strlen(word) > 32) {
+	printf("Channel name too long. 32 characters max.\n");
+	return -1;
+    }
     strcpy(buf, word); // put the word in our buffer
     return 0;
 }
