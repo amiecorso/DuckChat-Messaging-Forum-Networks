@@ -5,20 +5,6 @@ Fall 2017
 */
 
 /* 
-The client program must take exactly three command-line arguments. The first is the host name where the server is running. The second argument is the port number on which the server is listening. The third argument is the user's username.
-
-When the client starts, it automatically connects to the chat server, joins a channel called “Common”, and provides the user a prompt (i.e. the client must send the join message to join “Common”). When the user types/enters text at the prompt and hits 'Enter', the text is sent to the server (using the "say request" message), and the server relays the text to all users on the channel (including the speaker).
-
-The exception is when the text begins with a forward slash ('/') character. In that case, the text is interpreted as a special command. These special commands are supported by the DuckChat client:
-
-/exit: Logout the user and exit the client software.
-/join channel: Join (subscribe in) the named channel, creating the channel if it does not exist.
-/leave channel: Leave the named channel.
-/list: List the names of all channels.
-/who channel: List the users who are on the named channel.
-/switch channel: Switch to an existing named channel that user has already joined.host name where the server is running. 
-The second argument is the port number on which the server is listening. 
-The third argument is the user's username.
 TODO:
 - does gethostbyname() handle already-IP addresses??
 */
@@ -136,44 +122,54 @@ main(int argc, char **argv) {
     fd_set rfds;      // set of file descriptors for select() to watch
     struct timeval tv; // timeout interval
     int retval;        // stores return val of select call
+    int fdmax = sockfd; // largest file desc
 
     FD_ZERO(&rfds);    // clears out rfds
     FD_SET(0, &rfds); // make stdin part of the rfds
+    FD_SET(sockfd, &rfds); // make our socket part of the rfds
 
     tv.tv_sec = 0;
     tv.tv_usec = 500000; // check every half second
     while (1) {
-	while (!(retval = select(1, &rfds, NULL, NULL, &tv))) {
-	    FD_ZERO(&rfds); // reset select fields
-	    FD_SET(0, &rfds);
-	    tv.tv_sec = 0;
-	    tv.tv_usec = 500000; 
-        } // end WHILE nothing typed....
-	while ((nextin = fgetc(stdin)) != '\n') { // waiting for enter key
-	    printf("%c", nextin); // display for user to see
-	    input_buf[buf_in++] = (char) nextin; // store in buffer	
+	retval = select(fdmax + 1, &rfds, NULL, NULL, &tv);
+	if (retval > 0 && FD_ISSET(sockfd, &rfds)) { // was it the server?
+	    //response = recv(sockfd, buff...
+	// get reponse and use
+	// reset select fields?? are we going to go back into while loop??
+	printf("It was the server!");
 	}
-	input_buf[buf_in] = '\0';
-	//printf("\ninput_buf = %s\n", input_buf);
-	code = (request_t) classify_input(input_buf);
-	printf("\nrequest CODE = %d\n", code);
-	bytes_to_send = pack_request(code, input_buf, &next_request);
-	// SEND CASES
-	if (bytes_to_send == -1) {
-	    //problem
-	    printf("Invalid command.\n");
-	}
-	else if (bytes_to_send == 0) {
-		//switch case!
-	}
-	else {
-	    if (sendto(sockfd, next_request, bytes_to_send, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-		perror("sendto failed");
-		return 0; // DO WE WANT TO ACTUALLY RETURN?
-	    }  
-	    free(next_request);
-	} // end WHILE WAITING FOR ENTER KEY
-	buf_in = 0; // reset our buffer's index.
+	else if (retval > 0 && FD_ISSET(0, &rfds)) { // was it the user typing?
+		while ((nextin = fgetc(stdin)) != '\n') { // waiting for enter key
+		    printf("%c", nextin); // display for user to see
+		    input_buf[buf_in++] = (char) nextin; // store in buffer	
+		}
+		input_buf[buf_in] = '\0';
+		code = (request_t) classify_input(input_buf);
+		printf("\nrequest CODE = %d\n", code);
+		bytes_to_send = pack_request(code, input_buf, &next_request);
+		// SEND CASES
+		if (bytes_to_send == -1) {
+		    //problem
+		    printf("Invalid command.\n");
+		}
+		else if (bytes_to_send == 0) {
+			//switch case!
+		}
+		else {
+		    if (sendto(sockfd, next_request, bytes_to_send, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+			perror("sendto failed");
+			return 0; // DO WE WANT TO ACTUALLY RETURN?
+		    }  
+		    free(next_request);
+		} // end WHILE WAITING FOR ENTER KEY
+		buf_in = 0; // reset our buffer's index.
+	} // end if-user
+
+	FD_ZERO(&rfds); // reset select fields
+	FD_SET(0, &rfds);
+	FD_SET(sockfd, &rfds); 
+	tv.tv_sec = 0;
+	tv.tv_usec = 500000; 
     } // end while(1)
 
 
