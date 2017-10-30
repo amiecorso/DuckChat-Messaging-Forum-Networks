@@ -33,8 +33,12 @@ TODO:
 #include <netdb.h>
 #include <arpa/inet.h>
 #include "duckchat.h"
+#include "raw.h"
 int
 main(int argc, char **argv) {
+    // MODES
+    raw_mode();
+    atexit(cooked_mode);
     // Parse command-line arguments
     if (argc < 4) {
         perror("Client: missing arguments.");
@@ -100,6 +104,20 @@ main(int argc, char **argv) {
 
     // WHILE... until we hit exit.
 
+    char input_buf[1024]; // store gradual input
+    int nextin; 
+    int buf_in = 0;
+    
+    while (1){ // main CLIENT WHILE
+	while ((nextin = fgetc(stdin)) != '\n') {
+	    printf("%c", nextin); // display for user to see
+	    input_buf[buf_in++] = (char) nextin; // store in buffer	
+	}
+	input_buf[buf_in] = '\0';
+	printf("\ninput_buf = %s\n", input_buf);
+	buf_in = 0;
+    } // end while(1)
+
     // provide prompt to user
 	// read input as it is typed? (fgetc)
 	// when "enter" is detected, parse input
@@ -117,4 +135,22 @@ main(int argc, char **argv) {
     }  
     close(sockfd);
     return 0; // ??
+}
+
+/* ========== HELPER FUNCTIONS ==============================================*/
+/* classify_input takes a message typed by the user (after hitting enter)
+and returns either the request_t CODE (int) of the message, or -1 if bad format.
+If message is too long, returns -1 and prints error. */
+int
+classify_input(char *in)
+{
+    if (in[0] != '/') { // then this is just a message
+	// test for length
+	// return either -1 or 4 (REQ_SAY)
+    }
+    else { // we have a leading '/'
+	// switch case? error report for bad args
+	// need to use strcmp?
+
+    }
 }

@@ -1,9 +1,0 @@
-cc=gcc
-CFLAGS=-Wall -W -g -Werror 
-
-sandbox: sandbox.c
-	$(cc) sandbox.c $(CFLAGS) -o sandbox
-
-clean:
-	rm -f sandbox *.o
-
