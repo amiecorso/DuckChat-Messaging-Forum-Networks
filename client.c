@@ -46,6 +46,9 @@ int extract_ch(char *input, char *buf);
 
 // GLOBAL
 char active_ch[CHANNEL_MAX]; // currently active channel name
+char SERVER_HOST_NAME[64]; // is this buffer size ok??
+int SERVER_PORT = atoi(argv[2]);
+char USERNAME[USERNAME_MAX];
 
 
 int
@@ -54,23 +57,17 @@ main(int argc, char **argv) {
     raw_mode();
     atexit(cooked_mode);
 
-    strcpy(active_ch, "Common"); // default to common
-
     // Parse command-line arguments
     if (argc < 4) {
         perror("Client: missing arguments.");
         return 0;
     }
-    // add error checking?? is it ok that these are upper case??
-    // host name where server is running
-    char SERVER_HOST_NAME[64]; // is this buffer size ok??
-    //TODO: check for "localhost" and convert to 127.00..??
+    // TODO: ADD ARG ERROR CHECKING
+	// - username can't be longer than 32 chars
+	// error checking for bad returns from gethostbyname()
     strcpy(SERVER_HOST_NAME, argv[1]);
-    // port number on which server is listening
-    int SERVER_PORT = atoi(argv[2]);
-    // user's username
-    char USERNAME[USERNAME_MAX];
     strcpy(USERNAME, argv[3]);
+    strcpy(active_ch, "Common"); // default to common
 
     // set up CLIENT INFO and SOCKET
     struct sockaddr_in client_addr; // our local port information
@@ -97,11 +94,7 @@ main(int argc, char **argv) {
     bzero((char *)&serv_addr, sizeof(serv_addr));// set fields to NULL
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(SERVER_PORT);
-    // USE NPE
-    //inet_pton(AF_INET, SERVER_HOST_IP_ADDRESS, &(serv_addr.sin_addr)); // convert from char[] to network address
-    //serv_addr.sin_addr.s_addr = htonl(SERVER_HOST_IP_ADDRESS); do we need to get at sin_addr.s_addr???
-    // get IP address from host name...
-    struct hostent *hostent_p;
+    struct hostent *hostent_p; // for getting IP address from host name
     hostent_p = gethostbyname(SERVER_HOST_NAME);//DNS lookup for host name -> IP
     if (!hostent_p) {
         fprintf(stderr, "Could not obtain address for %s\n", SERVER_HOST_NAME);
@@ -109,71 +102,73 @@ main(int argc, char **argv) {
     } // and store it in the .sin_addr...
     memcpy((void *)&serv_addr.sin_addr, hostent_p->h_addr_list[0], hostent_p->h_length);
 
-    /*   
-    unsigned int alen = sizeof(client_addr);
-    if (getsockname(sockfd, (struct sockaddr *)&client_addr, &alen) < 0) {
-        perror("getsockname failed");
-        return 0;
-    }
-    printf("bind complete.  Port number = %d\n", ntohs(client_addr.sin_port));
-    */    
-    // send request to server, receive reply
+    /* CONNECTION ESTABLISHED */
 
-    // WHILE... until we hit exit.
+    // send initial LOGIN request
+    struct request_login login_req = {0}; // zero-out struct
+    login_req.req_type = 0;
+    strcpy(login_req.req_username, USERNAME);
+    if (sendto(sockfd, (void *)&login_req, 36, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+	perror("Client: Login failed");
+	return 0;
+    }  
+    // initial JOIN [Common] request
+    struct request_join join_req = {0};
+    join_req.req_type = 2;
+    strcpy(join_req.req_channel, active_ch); // should be common by default
+    if (sendto(sockfd, (void *)&join_req, 36, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+	perror("Client: Failed to join common.");
+	return 0;
+    }  
+    
+    /* MAIN WHILE LOOP */
 
-    char input_buf[1024]; // store gradual input
-    int nextin; 
-    int buf_in = 0;
-    request_t code;
+    char input_buf[1024] = {0}; // store gradual typed input
+    int nextin = NULL;     // for storing chars 
+    int buf_in = 0; // for storing chars
+    request_t code; 
     void *next_request;
     int bytes_to_send;
     
-    while (1){ // main CLIENT WHILE
-	while ((nextin = fgetc(stdin)) != '\n') {
+    while (1){
+	while ((nextin = fgetc(stdin)) == EOF) {
+	// while nothing from user... read from server
+	printf("EOF!");
+        } // end WHILE nothing typed....
+	while (nextin != '\n') {
 	    printf("%c", nextin); // display for user to see
 	    input_buf[buf_in++] = (char) nextin; // store in buffer	
+	    nextin = fgetc(stdin); // get the next character
 	}
 	input_buf[buf_in] = '\0';
-	printf("\ninput_buf = %s\n", input_buf);
+	//printf("\ninput_buf = %s\n", input_buf);
 	code = (request_t) classify_input(input_buf);
-	printf("request_t CODE = %d\n", code);
+	printf("request CODE = %d\n", code);
 	bytes_to_send = pack_request(code, input_buf, &next_request);
 	// SEND CASES
 	if (bytes_to_send == -1) {
 	    //problem
-	    free(next_request);
-	    printf("No good\n");
+	    printf("Invalid command.\n");
+	    break;
 	}
-	else if (bytes_to_send == 8) {
+	else if (bytes_to_send == 0) {
 		//switch case!
+	    break;
 	}
 	else {
 	    if (sendto(sockfd, next_request, bytes_to_send, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-	        perror("sendto failed");
-	        return 0;
+		perror("sendto failed");
+		return 0;
 	    }  
 	    free(next_request);
-	}
-	buf_in = 0;
+	} // end WHILE WAITING FOR ENTER KEY
+	buf_in = 0; // reset our buffer's index.
     } // end while(1)
 
-    // provide prompt to user
-	// read input as it is typed? (fgetc)
-	// when "enter" is detected, parse input
-	// if input did not start with a /, send as text to server
-	// if input DID start with a /, read the next word in the input.
-	// if the word matches one of our 7 cases, take the corresponding action
-		// package up an appropriate message to the server
-		// send such message to the server.
 
-
-    char *test_message = "this is a test message\n";
-    if (sendto(sockfd, test_message, strlen(test_message), 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-        perror("sendto failed");
-        return 0;
     }  
-    close(sockfd);
-    return 0; // ??
+    close(sockfd); // close our socket
+    return 0; // MAIN return
 }
 
 /* ========== HELPER FUNCTIONS ==============================================*/
@@ -202,12 +197,10 @@ classify_input(char *in)
 	if (strncmp(in, "/who", 4) == 0) // WHO
 	    return 6;
 	if (strncmp(in, "/switch", 7) == 0) // SWITCH --> create own return code, 8
-	    return 8;
-	else { // either matches nothing or is missing space after request
-	    printf("Unknown request.\n");
-	    return -1;
+	    return 0;
+	printf("Unknown request.\n");
+	return -1;
 	}
-    }
 } // end classify_input
 
 /* pack_request uses the code type given to correctly prepare a structure with the right contents
@@ -215,65 +208,59 @@ to be sent to the server.  Returns a void * */
 int
 pack_request(request_t code, char *input, void **next_request)
 {
-    void *request;
     char channel_buf [32]; // for the cases that require us to get a channel
     switch (code) {
-	case 1: // EXIT
-	    request = (struct request_logout *)request;
-	    request = (struct request_logout *)malloc(sizeof(struct request_logout));
-	    request->req_type = REQ_LOGOUT;
-	    *next_request = request;
+	case 1: {// EXIT
+	    struct request_logout *logout_req = (struct request_logout *)malloc(sizeof(struct request_logout));
+	    logout_req->req_type = REQ_LOGOUT;
+	    *next_request = logout_req;
 	    return 4;
-
-	case 2: // JOIN (req_channel[CHANNEL_MAX])
+	}
+	case 2: {// JOIN (req_channel[CHANNEL_MAX])
 	    if (extract_ch(input, channel_buf) == -1)
 		return -1;
-	    request = (struct request_join *)request;
-	    request = (struct request_join *)malloc(sizeof(struct request_join));
-	    request->req_type = REQ_JOIN;
-	    strcpy(request->req_channel, channel_buf); // put the channel in the struct
-	    *next_request = request;
+	    struct request_join *join_req  = (struct request_join *)malloc(sizeof(struct request_join));
+	    join_req->req_type = REQ_JOIN;
+	    strcpy(join_req->req_channel, channel_buf); // put the channel in the struct
+	    *next_request = join_req;
 	    return 36;
-
-	case 3: // LEAVE (req_channel)
+	}
+	case 3: {// LEAVE (req_channel)
 	    if (extract_ch(input, channel_buf) == -1)
 		return -1;
-	    request = (struct request_leave *)request;
-	    request = (struct request_leave *)malloc(sizeof(struct request_leave));
-	    request->req_type = REQ_LEAVE;
-	    strcpy(request->req_channel, channel_buf); // put the channel in the struct
-	    *next_request = request;
+	    struct request_leave * leave_req = (struct request_leave *)malloc(sizeof(struct request_leave));
+	    leave_req->req_type = REQ_LEAVE;
+	    strcpy(leave_req->req_channel, channel_buf); // put the channel in the struct
+	    *next_request = leave_req;
 	    return 36;
-
-	case 4: // SAY
-	    request = (struct request_say *)request;
-	    request = (struct request_say *)malloc(sizeof(struct request_say));
-	    request->req_type = REQ_SAY;
-	    strcpy(request->req_channel, active_ch); // store active channel
-	    strcpy(request->req_text, input); // store msg 
-	    *next_request = request;
+	}
+	case 4: {// SAY
+	    struct request_say *say_req = (struct request_say *)malloc(sizeof(struct request_say));
+	    say_req->req_type = REQ_SAY;
+	    strcpy(say_req->req_channel, active_ch); // store active channel
+	    strcpy(say_req->req_text, input); // store msg 
+	    *next_request = say_req;
 	    return 100;
-
-	case 5: // LIST 
-	    request = (struct request_list *)request;
-	    request = (struct request_list *)malloc(sizeof(struct request_list));
-	    request->req_type = REQ_LIST;
-	    *next_request = request;
+	}
+	case 5: {// LIST 
+	    struct request_list *list_req = (struct request_list *)malloc(sizeof(struct request_list));
+	    list_req->req_type = REQ_LIST;
+	    *next_request = list_req;
 	    return 4;
-	
-	case 6: // WHO (req_channel)
+	}
+	case 6: {// WHO (req_channel)
 	    if (extract_ch(input, channel_buf) == -1)
 		return -1;
-	    request = (struct request_who *)request;
-	    request = (struct request_who *)malloc(sizeof(struct request_who));
-	    request->req_type = REQ_WHO;
-	    strcpy(request->req_channel, channel_buf); // put the channel in the struct
-	    *next_request = request;
+	    struct request_who *who_req = (struct request_who *)malloc(sizeof(struct request_who));
+	    who_req->req_type = REQ_WHO;
+	    strcpy(who_req->req_channel, channel_buf); // put the channel in the struct
+	    *next_request = who_req;
 	    return 36;
-
-	case 8: // SWITCH (req_channel) ?? weird case
+	}
+	case 8: { // SWITCH (req_channel) ?? weird case
 	    if (extract_ch(input, channel_buf) == -1)
 		return 8;
+	}
     }
     return -1;  // if no good code
 }

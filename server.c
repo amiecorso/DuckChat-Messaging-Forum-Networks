@@ -63,7 +63,7 @@ main() {
                 printf("received %d bytes\n", rec_len);
                 if (rec_len > 0) {
 
-                        buf[rec_len] = 0;
+                        buf[rec_len] = '\0';
                         printf("received message: \"%s\"\n", buf);
                 }
                 sendto(sockfd, buf, strlen((const char *)buf), 0, (struct sockaddr *)&remote_addr, addr_len);
