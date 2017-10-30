@@ -35,6 +35,15 @@ TODO:
 #include "duckchat.h"
 #include "raw.h"
 
+#define UNUSED __attribute__((unused))
+// forward declarations
+int help_getword(char buf[], int i, char word[]);
+int help_strchr(char buf[], char c);
+int classify_input(char *in);
+int pack_request(request_t code, char *input, void **next_request);
+int extract_ch(char *input, char *buf);
+
+
 // GLOBAL
 char active_ch[CHANNEL_MAX]; // currently active channel name
 
@@ -115,6 +124,9 @@ main(int argc, char **argv) {
     char input_buf[1024]; // store gradual input
     int nextin; 
     int buf_in = 0;
+    request_t code;
+    void *next_request;
+    int bytes_to_send;
     
     while (1){ // main CLIENT WHILE
 	while ((nextin = fgetc(stdin)) != '\n') {
@@ -123,6 +135,25 @@ main(int argc, char **argv) {
 	}
 	input_buf[buf_in] = '\0';
 	printf("\ninput_buf = %s\n", input_buf);
+	code = (request_t) classify_input(input_buf);
+	printf("request_t CODE = %d\n", code);
+	bytes_to_send = pack_request(code, input_buf, &next_request);
+	// SEND CASES
+	if (bytes_to_send == -1) {
+	    //problem
+	    free(next_request);
+	    printf("No good\n");
+	}
+	else if (bytes_to_send == 8) {
+		//switch case!
+	}
+	else {
+	    if (sendto(sockfd, next_request, bytes_to_send, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+	        perror("sendto failed");
+	        return 0;
+	    }  
+	    free(next_request);
+	}
 	buf_in = 0;
     } // end while(1)
 
@@ -160,24 +191,18 @@ classify_input(char *in)
 	return 4; // otherwise, we're good, return code 4
     }
     else { // we have a leading '/'
-	if (strncmp(in, "/exit ", 6) == 0) { // EXIT
-
-	}
-	if (strncmp(in, "/join ", 6) == 0) { // JOIN
-
-	}
-	if (strncmp(in, "/leave ", 7) == 0) { // LEAVE
-
-	}
-	if (strncmp(in, "/list ", 6) == 0 ) { // LIST
-
-	} 
-	if (strncmp(in, "/who ", 5) == 0) { // WHO
-
-	}
-	if (strncmp(in, "/switch ", 8) == 0) { // SWITCH --> create own return code, 8
-
-	}
+	if (strncmp(in, "/exit", 5) == 0) // EXIT
+	    return 1;
+	if (strncmp(in, "/join", 5) == 0) // JOIN
+	    return 2;
+	if (strncmp(in, "/leave", 6) == 0) // LEAVE
+	    return 3;
+	if (strncmp(in, "/list", 5) == 0 ) // LIST
+	    return 5;
+	if (strncmp(in, "/who", 4) == 0) // WHO
+	    return 6;
+	if (strncmp(in, "/switch", 7) == 0) // SWITCH --> create own return code, 8
+	    return 8;
 	else { // either matches nothing or is missing space after request
 	    printf("Unknown request.\n");
 	    return -1;
@@ -187,8 +212,142 @@ classify_input(char *in)
 
 /* pack_request uses the code type given to correctly prepare a structure with the right contents
 to be sent to the server.  Returns a void * */
-void *
-pack_request(request_t code, char *msg) // should this be a char * or a request container?
+int
+pack_request(request_t code, char *input, void **next_request)
 {
-    // switch case on code...
+    void *request;
+    char channel_buf [32]; // for the cases that require us to get a channel
+    switch (code) {
+	case 1: // EXIT
+	    request = (struct request_logout *)request;
+	    request = (struct request_logout *)malloc(sizeof(struct request_logout));
+	    request->req_type = REQ_LOGOUT;
+	    *next_request = request;
+	    return 4;
+
+	case 2: // JOIN (req_channel[CHANNEL_MAX])
+	    if (extract_ch(input, channel_buf) == -1)
+		return -1;
+	    request = (struct request_join *)request;
+	    request = (struct request_join *)malloc(sizeof(struct request_join));
+	    request->req_type = REQ_JOIN;
+	    strcpy(request->req_channel, channel_buf); // put the channel in the struct
+	    *next_request = request;
+	    return 36;
+
+	case 3: // LEAVE (req_channel)
+	    if (extract_ch(input, channel_buf) == -1)
+		return -1;
+	    request = (struct request_leave *)request;
+	    request = (struct request_leave *)malloc(sizeof(struct request_leave));
+	    request->req_type = REQ_LEAVE;
+	    strcpy(request->req_channel, channel_buf); // put the channel in the struct
+	    *next_request = request;
+	    return 36;
+
+	case 4: // SAY
+	    request = (struct request_say *)request;
+	    request = (struct request_say *)malloc(sizeof(struct request_say));
+	    request->req_type = REQ_SAY;
+	    strcpy(request->req_channel, active_ch); // store active channel
+	    strcpy(request->req_text, input); // store msg 
+	    *next_request = request;
+	    return 100;
+
+	case 5: // LIST 
+	    request = (struct request_list *)request;
+	    request = (struct request_list *)malloc(sizeof(struct request_list));
+	    request->req_type = REQ_LIST;
+	    *next_request = request;
+	    return 4;
+	
+	case 6: // WHO (req_channel)
+	    if (extract_ch(input, channel_buf) == -1)
+		return -1;
+	    request = (struct request_who *)request;
+	    request = (struct request_who *)malloc(sizeof(struct request_who));
+	    request->req_type = REQ_WHO;
+	    strcpy(request->req_channel, channel_buf); // put the channel in the struct
+	    *next_request = request;
+	    return 36;
+
+	case 8: // SWITCH (req_channel) ?? weird case
+	    if (extract_ch(input, channel_buf) == -1)
+		return 8;
+    }
+    return -1;  // if no good code
+}
+
+/* extracts second word from input and stores in buf.
+Returns 0 if successful, -1 if unsuccessful */
+int
+extract_ch(char *input, char *buf)
+{
+    int w = 0;
+    char word[32]; // word buffer
+    w = help_getword(input, w, word); // this should pass the command ("join")
+    if (w == -1) {
+	printf("Improper format: missing channel.\n");
+	return -1;
+    }
+    w = help_getword(input, w, word); // now we SHOULD have a channel in here. (Server will let us know if it's legit)
+    // should we check for EXTRA args here?? (like if there are more words to grab?)
+    strcpy(buf, word); // put the word in our buffer
+    return 0;
+}
+
+
+
+/*
+CREDIT: Joe Sventek wrote this function available for use in our 415 projects.
+fetch next blank-separated word from buffer into word
+return value is index into buffer for next search or -1 if at end
+assumes that word[] is large enough to hold the next word
+ */
+static char *singlequote = "'";
+static char *doublequote = "\"";
+static char *whitespace = " \t";
+
+int help_getword(char buf[], int i, char word[]) {
+    char *tc, *p;
+
+    /* skip leading white space */
+    while(help_strchr(whitespace, buf[i]) != -1)
+        i++;
+    /* buf[i] is now '\0' or a non-blank character */
+    if (buf[i] == '\0')
+        return -1;
+    p = word;
+    switch(buf[i]) {
+    case '\'': tc = singlequote; i++; break;
+    case '"': tc = doublequote; i++; break;
+    default: tc = whitespace; break;
+    }
+    while (buf[i] != '\0') {
+        if (help_strchr(tc, buf[i]) != -1)
+            break;
+        *p++ = buf[i];
+        i++;
+    }
+    /* either at end of string or have found one of the terminators */
+    if (buf[i] != '\0') {
+        if (tc != whitespace) {
+            i++;	/* skip over terminator */
+        }
+    }
+    *p = '\0';
+    return i;
+}
+
+/* 
+CREDIT: Joe Sventek wrote this function for a 415 project.
+help_strchr - return the array index of leftmost occurrence of 'c' in 'buf'
+return -1 if not found
+ */
+int help_strchr(char buf[], char c) {
+    int i;
+    for (i = 0; buf[i] != '\0'; i++)
+        if (buf[i] == c)
+            return i;
+    return -1;
 }
