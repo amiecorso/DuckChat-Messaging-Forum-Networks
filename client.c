@@ -29,6 +29,7 @@ TODO:
 #include <unistd.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/time.h> // select
 #include <netinet/in.h>
 #include <netdb.h>
 #include <arpa/inet.h>
@@ -125,41 +126,50 @@ main(int argc, char **argv) {
     /* MAIN WHILE LOOP */
 
     char input_buf[1024] = {0}; // store gradual typed input
-    int nextin = NULL;     // for storing chars 
+    int nextin;     // for storing chars 
     int buf_in = 0; // for storing chars
     request_t code; 
     void *next_request;
     int bytes_to_send;
-    
-    while (1){
-	while ((nextin = fgetc(stdin)) == EOF) {
-	// while nothing from user... read from server
-	printf("EOF!");
+
+    // set up fields for SELECT()
+    fd_set rfds;      // set of file descriptors for select() to watch
+    struct timeval tv; // timeout interval
+    int retval;        // stores return val of select call
+
+    FD_ZERO(&rfds);    // clears out rfds
+    FD_SET(0, &rfds); // make stdin part of the rfds
+
+    tv.tv_sec = 0;
+    tv.tv_usec = 500000; // check every half second
+    while (1) {
+	while (!(retval = select(1, &rfds, NULL, NULL, &tv))) {
+	    FD_ZERO(&rfds); // reset select fields
+	    FD_SET(0, &rfds);
+	    tv.tv_sec = 0;
+	    tv.tv_usec = 500000; 
         } // end WHILE nothing typed....
-	while (nextin != '\n') {
+	while ((nextin = fgetc(stdin)) != '\n') { // waiting for enter key
 	    printf("%c", nextin); // display for user to see
 	    input_buf[buf_in++] = (char) nextin; // store in buffer	
-	    nextin = fgetc(stdin); // get the next character
 	}
 	input_buf[buf_in] = '\0';
 	//printf("\ninput_buf = %s\n", input_buf);
 	code = (request_t) classify_input(input_buf);
-	printf("request CODE = %d\n", code);
+	printf("\nrequest CODE = %d\n", code);
 	bytes_to_send = pack_request(code, input_buf, &next_request);
 	// SEND CASES
 	if (bytes_to_send == -1) {
 	    //problem
 	    printf("Invalid command.\n");
-	    break;
 	}
 	else if (bytes_to_send == 0) {
 		//switch case!
-	    break;
 	}
 	else {
 	    if (sendto(sockfd, next_request, bytes_to_send, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
 		perror("sendto failed");
-		return 0;
+		return 0; // DO WE WANT TO ACTUALLY RETURN?
 	    }  
 	    free(next_request);
 	} // end WHILE WAITING FOR ENTER KEY
