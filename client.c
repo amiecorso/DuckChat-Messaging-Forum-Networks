@@ -34,11 +34,19 @@ TODO:
 #include <arpa/inet.h>
 #include "duckchat.h"
 #include "raw.h"
+
+// GLOBAL
+char active_ch[CHANNEL_MAX]; // currently active channel name
+
+
 int
 main(int argc, char **argv) {
     // MODES
     raw_mode();
     atexit(cooked_mode);
+
+    strcpy(active_ch, "Common"); // default to common
+
     // Parse command-line arguments
     if (argc < 4) {
         perror("Client: missing arguments.");
@@ -144,13 +152,43 @@ If message is too long, returns -1 and prints error. */
 int
 classify_input(char *in)
 {
-    if (in[0] != '/') { // then this is just a message
-	// test for length
-	// return either -1 or 4 (REQ_SAY)
+    if (in[0] != '/') { // SAY request 
+	if (strlen(in) > 64) { // test for length
+	    printf("Message is too long. 64 characters max.\n");
+	    return -1;
+	}
+	return 4; // otherwise, we're good, return code 4
     }
     else { // we have a leading '/'
-	// switch case? error report for bad args
-	// need to use strcmp?
+	if (strncmp(in, "/exit ", 6) == 0) { // EXIT
 
+	}
+	if (strncmp(in, "/join ", 6) == 0) { // JOIN
+
+	}
+	if (strncmp(in, "/leave ", 7) == 0) { // LEAVE
+
+	}
+	if (strncmp(in, "/list ", 6) == 0 ) { // LIST
+
+	} 
+	if (strncmp(in, "/who ", 5) == 0) { // WHO
+
+	}
+	if (strncmp(in, "/switch ", 8) == 0) { // SWITCH --> create own return code, 8
+
+	}
+	else { // either matches nothing or is missing space after request
+	    printf("Unknown request.\n");
+	    return -1;
+	}
     }
+} // end classify_input
+
+/* pack_request uses the code type given to correctly prepare a structure with the right contents
+to be sent to the server.  Returns a void * */
+void *
+pack_request(request_t code, char *msg) // should this be a char * or a request container?
+{
+    // switch case on code...
 }
