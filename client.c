@@ -26,8 +26,6 @@ TODO:
 // forward declarations
 typedef struct ch channel;
 typedef struct channelnode cnode;
-void add_channel(char *cname);
-void delete_channel(char *cname);
 int classify_input(char *in);
 int pack_request(request_t code, char *input, void **next_request);
 int do_switch(char *newchannel);
@@ -41,7 +39,7 @@ void delete_channel(char *cname);	          // frees channel data, deletes list 
 cnode *add_channel(char *cname);	  // creates (if needed) a new channel and installs in list
 
 struct ch {
-    char cname[32];
+    char channelname[32];
 };
 
 struct channelnode {
@@ -456,7 +454,7 @@ void delete_channel(char *cname)	          // frees channel data, deletes list n
 	fprintf(stdout, "Channel %s doesn't exist.\n", cname);
     channel *ch_p = c_node->c;
     // make sure it's not "Common", which we need to keep
-    if (strcmp(ch_p->channelname, "Common") == 0) }
+    if (strcmp(ch_p->channelname, "Common") == 0) {
 	fprintf(stdout, "Preserving channel \"Common\".\n");
 	return;
     }
@@ -468,7 +466,7 @@ void delete_channel(char *cname)	          // frees channel data, deletes list n
     }
     else if ((c_node->prev == NULL) && (c_node->next != NULL)) { // case: head, multiple nodes
 	chead = c_node->next; // head points to next down
-	(c_node->next)->prev == NULL; // new head points back to nothing
+	//(c_node->next)->prev == NULL; // new head points back to nothing
     } else if ((c_node->prev != NULL) && (c_node->next != NULL)) { //case: middle of list
 	(c_node->next)->prev = c_node->prev; // bridge the gap
 	(c_node->prev)->next = c_node->next;
