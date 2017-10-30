@@ -62,14 +62,14 @@ void list(char *uname, char *cname);
 void who(uname, cname);
 void keep_alive(char *uname); //update time stamp
 	// helpers:
-user *create_user(char *uname);		  // creates (if needed) a new user and installs in list
-channel *create_channel(char *cname);	  // creates (if needed) a new channel and installs in list
-user *find_user(char *uname, unode *head);	  // searches list for user with given name and returns pointer to user
-channel *find_channel(char *cname, cnode *head);  // searches list for channel of given name and returns pointer to channel
+unode *create_user(char *uname);		  // creates (if needed) a new user and installs in list
+cnode *create_channel(char *cname);	  // creates (if needed) a new channel and installs in list
+unode *find_user(char *uname, unode *head);	  // searches list for user with given name and returns pointer to user
+cnode *find_channel(char *cname, cnode *head);  // searches list for channel of given name and returns pointer to channel
 
 // consider writing an install_user and install_channel function that takes a user * and a list HEAD...
-int delete_user(user *u);    	  i       // removes user from all channels, frees user data, deletes list node
-int delete_channel(channel *c);	          // frees channel data, deletes list node
+void delete_user(char *uname);    	  i       // removes user from all channels, frees user data, deletes list node
+void delete_channel(char *cname);	          // frees channel data, deletes list node
 int add_utoch(channel *c, char *uname);  // adds user to specified channel's list of users
 int add_chtou(user *u, char *cname);  // adds channel to specified user's list of channels
 int rm_ufromch(channel *c, char *uname); // removes user from specified channel's list of users
@@ -91,11 +91,13 @@ struct channel_data {
 struct ulist_node {
     user *u;
     unode *next;
+    unode *prev;
 };
 
 struct clist_node {
     channel *c;
     cnode *next;
+    unode *prev;
 };
 
 
@@ -181,23 +183,26 @@ void keep_alive(char *uname) //update time stamp
 }
 
 /* DATA MANIPULATORS */
-user *create_user(char *uname)		  // creates (if needed) a new user and installs in list
+unode *create_user(char *uname)		  // creates (if needed) a new user and installs in list
 {
     user *newuser = (user *)malloc(sizeof(user));
     if (newuser == NULL)
 	fprintf(stderr, "Error malloc'ing new user: %s\n", uname);
     strcpy(newuser->username, uname);         // add the username
     gettimeofday(newuser->last_active, NULL); // user's initial activity time
-    add_chtou(newuser, "Common");             // Initially active on Common
+    newuser->mychannels = NULL;		      // initially not on any channels
+    add_chtou(newuser, "Common");             // becomes active on Common
     // install in list of users
     unode *newnode = (unode *)malloc(sizeof(unode)); // new user list node
     newnode->u = newuser;  // data is pointer to our new user struct
     newnode->next = uhead; // new node points at whatever head WAS pointing at
-    uhead = newnode;       // head is now our new node
-    return newuser;			      // finally, return pointer to newly created user
+    newnode->prev = NULL; // pointing backward at nothing
+    uhead->prev = newnode; //old head points back at new node
+    uhead = newnode;       // finally, update head to be our new node
+    return newnode;			      // finally, return pointer to newly created user
 }
 
-channel *create_channel(char *cname)	  // creates (if needed) a new channel and installs in list
+cnode *create_channel(char *cname)	  // creates (if needed) a new channel and installs in list
 {
     channel *newchannel = (channel *)malloc(sizeof(channel));
     if (newchannel == NULL)
@@ -209,28 +214,30 @@ channel *create_channel(char *cname)	  // creates (if needed) a new channel and 
     cnode *newnode = (cnode *)malloc(sizeof(cnode)); // new channel list node
     newnode->c = newchannel;
     newnode->next = chead;
+    newnode->prev = NULL;
+    chead->prev = newnode;
     chead = newnode;
-    return newchannel; // finally, return pointer to new channel
+    return newnode; // finally, return pointer to new channel
 }
 
-user *find_user(char *uname, unode *head)	  // searches list for user with given name and returns pointer to user
+unode *find_user(char *uname, unode *head) // searches list for user with given name and returns pointer to LIST NODE
 {
     unode *nextnode = head; // start at the head
     while (nextnode != NULL) { // while we've still got list to search...
         if (strcmp((nextnode->u)->username, uname) == 0) { // if we've got a match
-	    return nextnode->u; // return pointer to this user
+	    return nextnode; // return pointer to this ulist node!
         }
         nextnode = nextnode->next; // move down the list
     }
     return NULL;
 }
 
-channel *find_channel(char *cname, cnode *head)  // searches list for channel of given name and returns pointer to channel
+cnode *find_channel(char *cname, cnode *head)  // searches list for channel of given name and returns pointer to CHANNEL NODE
 {
     cnode *nextnode = head; // start at the head
     while (nextnode != NULL) { // while we've still got list to search...
         if (strcmp((nextnode->c)->channelname, cname) == 0) { // if we've got a match
-	    return nextnode->c; // return pointer to this user
+	    return nextnode; // return pointer to this channel node
         }
         nextnode = nextnode->next; // move down the list
     }
@@ -238,24 +245,48 @@ channel *find_channel(char *cname, cnode *head)  // searches list for channel of
 }
 
 // consider writing an install_user and install_channel function that takes a user * and a list HEAD...
-int delete_user(user *u)    	  i       // removes user from all channels, frees user data, deletes list node
+void delete_user(char *uname)    	  i       // removes user from all channels, frees user data, deletes list node
 {
     // go through user's channel's and remove user from each channel (decrement channel counts)
-
-    // free the user's linked list (channel) nodes
-
-    // free the user's struct
-
-    // delete the node the ulist
+    unode *listnode;
+    if ((listnode = find_user(uname, uhead)) == NULL) { // get a handle on the list node
+	fprintf(stdout, "User %s doesn't exist.\n", uname);
+    }
+    user *user_p = listnode->u;
+    channel *ch_p;
+    cnode *next_channel = user_p->mychannels; // start at the head
+    while (next_channel != NULL) {
+        ch_p = next_channel->c; // get a handle on the channel
+        rm_ufromch(ch_p, user_p->username); // remove user from channel
+        ch_p->count--;                 // decrement count
+        if (ch_p->count == 0)          // check if last user
+	    delete_channel(ch_p);      // if so, delete the channel
+        free(next_channel); 		// FREE this linked list node
+        next_channel = next_channel->next; // move to the next one (if there is one)
+    }
+    // now that all channels have been left (and nodes freed), free the user's struct
+    free(user_p);
+    // update the linkages in the list
+    (listnode->prev)->next = listnode->next;
+    (listnode->next)->prev = listnode->prev;
+    // finally, free the listnode
+    free(listnode);
+    
 }
 
-int delete_channel(channel *c)	          // frees channel data, deletes list node
+void delete_channel(char *cname)	          // frees channel data, deletes list node
 {
     // channel SHOULD have no more user's in list
-
-    // free the struct
-
-    // delete the node in the clist   
+    cnode *listnode = find_channel(cname);
+    if (listnode == NULL)
+	fprintf(stdout, "Channel %s doesn't exist.\n", cname);
+    // free the channel struct
+    free(listnode->c);
+    // update linkages in the list:
+    (listnode->prev)->next = listnode->next;
+    (listnode->next)->prev = listnode->prev;
+    // finally, free the node in the clist   
+    free(listnode);
 }
 
 int add_utoch(channel *c, char *uname)  // adds user to specified channel's list of users
