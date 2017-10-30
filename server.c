@@ -248,45 +248,67 @@ cnode *find_channel(char *cname, cnode *head)  // searches list for channel of g
 void delete_user(char *uname)    	  i       // removes user from all channels, frees user data, deletes list node
 {
     // go through user's channel's and remove user from each channel (decrement channel counts)
-    unode *listnode;
-    if ((listnode = find_user(uname, uhead)) == NULL) { // get a handle on the list node
+    unode *u_node;
+    if ((u_node = find_user(uname, uhead)) == NULL) { // get a handle on the list node
 	fprintf(stdout, "User %s doesn't exist.\n", uname);
     }
-    user *user_p = listnode->u;
+    user *user_p = u_node->u;
     channel *ch_p;
     cnode *next_channel = user_p->mychannels; // start at the head
     while (next_channel != NULL) {
         ch_p = next_channel->c; // get a handle on the channel
-        rm_ufromch(ch_p, user_p->username); // remove user from channel
-        ch_p->count--;                 // decrement count
-        if (ch_p->count == 0)          // check if last user
-	    delete_channel(ch_p);      // if so, delete the channel
+        rm_ufromch(ch_p, user_p->username); // remove user from channel (this will call delete_channel if it's empty)
         free(next_channel); 		// FREE this linked list node
         next_channel = next_channel->next; // move to the next one (if there is one)
     }
     // now that all channels have been left (and nodes freed), free the user's struct
     free(user_p);
-    // update the linkages in the list
-    (listnode->prev)->next = listnode->next;
-    (listnode->next)->prev = listnode->prev;
-    // finally, free the listnode
-    free(listnode);
-    
+    // update the linkages in the list: depends on case
+    if ((u_node->prev == NULL) && (u_node->next == NULL)) { // case, ONLY NODE
+	uhead = NULL; // just set the head to null
+    }
+    else if ((u_node->prev == NULL) && (u_node->next != NULL)) { // case: head, multiple nodes
+	uhead = u_node->next; // head points to next down
+	(u_node->next)->prev == NULL; // new head points back to nothing
+    } else if ((u_node->prev != NULL) && (u_node->next != NULL)) { //case: middle of list
+	(u_node->next)->prev = u_node->prev; // bridge the gap
+	(u_node->prev)->next = u_node->next;
+    } else if ((u_node->prev != NULL) && (u_node->next == NULL)) { // case: tail, multiple nodes
+	(u_node->prev)->next = NULL; // tail points out to nothing
+    }
+    // in call cases, free the list node
+    free(u_node);
 }
 
 void delete_channel(char *cname)	          // frees channel data, deletes list node
 {
     // channel SHOULD have no more user's in list
-    cnode *listnode = find_channel(cname);
-    if (listnode == NULL)
+    cnode *c_node = find_channel(cname, chead);
+    if (c_node == NULL)
 	fprintf(stdout, "Channel %s doesn't exist.\n", cname);
+    channel *ch_p = c_node->c;
+    // make sure it's not "Common", which we need to keep
+    if (strcmp(ch_p->channelname, "Common") == 0) }
+	fprintf(stdout, "Preserving channel \"Common\".\n");
+	return;
+    }
     // free the channel struct
-    free(listnode->c);
-    // update linkages in the list:
-    (listnode->prev)->next = listnode->next;
-    (listnode->next)->prev = listnode->prev;
+    free(ch_p);
+    // update linkages in the list: depends on case 
+    if ((c_node->prev == NULL) && (c_node->next == NULL)) { // case, ONLY NODE
+	chead = NULL; // just set the head to null
+    }
+    else if ((c_node->prev == NULL) && (c_node->next != NULL)) { // case: head, multiple nodes
+	chead = c_node->next; // head points to next down
+	(c_node->next)->prev == NULL; // new head points back to nothing
+    } else if ((c_node->prev != NULL) && (c_node->next != NULL)) { //case: middle of list
+	(c_node->next)->prev = c_node->prev; // bridge the gap
+	(c_node->prev)->next = c_node->next;
+    } else if ((c_node->prev != NULL) && (c_node->next == NULL)) { // case: tail, multiple nodes
+	(c_node->prev)->next = NULL; // tail points out to nothing
+    }
     // finally, free the node in the clist   
-    free(listnode);
+    free(c_node);
 }
 
 int add_utoch(char *uname, char *cname)  // adds user to specified channel's list of users
@@ -321,14 +343,14 @@ int add_utoch(char *uname, char *cname)  // adds user to specified channel's lis
 int add_chtou(char *cname, char *uname)  // adds channel to specified user's list of channels
 {
     // check if the channel exists
-    cnode *c_node = find_channel(cname);
+    cnode *c_node = find_channel(cname, chead);
     if (c_node == NULL) {
 	fprintf(stderr, "Can't add channel \"%s\" to user \"%s\", channel doesn't exist.\n", cname, uname);
 	return -1;
     }
     channel *ch_p = c_node->c;
     // check if the user exists
-    unode *u_node = find_user(uname);
+    unode *u_node = find_user(uname, uhead);
     if (u_node == NULL) {
 	fprintf(stderr, "Can't add channel \"%s\" to user \"%s\", user doesn't exist.\n", cname, uname);
 	return -1;
@@ -355,15 +377,70 @@ int add_chtou(char *cname, char *uname)  // adds channel to specified user's lis
 int rm_ufromch(char *uname, char *cname) // removes user from specified channel's list of users
 {
     // attempt to find user in channel's list
+    cnode *c_node = find_channel(cname, chead);
+    if (c_node == NULL) {
+	fprintf(stderr, "Can't find channel \"%s\" to remove user \"%s\".\n", cname, uname);
+	return -1;
+    }
+    channel *ch_p = c_node->c;
+    // check if the user exists in that channel's list
+    unode *u_node = find_user(uname, ch_p->myusers);
+    if (u_node == NULL) {
+	fprintf(stderr, "User \"%s\" not in channel \"%s\"'s list.\n", uname, cname);
+	return -1;
+    }
     // if found, remove user node from channel's list
-    // decrement count of users on channel
- 	// SHOUDL THIS BE THE ONLY PLACE THIS HAPPENS??  i.e. should delete user call this function?
+    if ((u_node->prev == NULL) && (u_node->next == NULL)) { // case, ONLY NODE
+	ch_p->myusers = NULL; // just set the head to null
+    }
+    else if ((u_node->prev == NULL) && (u_node->next != NULL)) { // case: head, multiple nodes
+	ch_p->myusers = u_node->next; // head points to next down
+	(u_node->next)->prev == NULL; // new head points back to nothing
+    } else if ((u_node->prev != NULL) && (u_node->next != NULL)) { //case: middle of list
+	(u_node->next)->prev = u_node->prev; // bridge the gap
+	(u_node->prev)->next = u_node->next;
+    } else if ((u_node->prev != NULL) && (u_node->next == NULL)) { // case: tail, multiple nodes
+	(u_node->prev)->next = NULL; // tail points out to nothing
+    }
+    // in call cases, free the list node
+    free(u_node);
+    ch_p->count -= 1;
+    if (ch_p->count == 0)
+	delete_channel(cname);
+    return 0;
 }
 
 int rm_chfromu(char *cname, char *uname) // removes channel from specified user's list of channels
 {
-	// attempt to find channel in user's list
-	// if found, remove channel from user
+    // attempt to find user 
+    unode *u_node = find_user(uname, uhead);
+    if (u_node == NULL) {
+	fprintf(stderr, "rm_chfromu: User \"%s\" doesn't seem to exist.\n", uname);
+	return -1;
+    }
+    user *user_p = u_node->u; // handle on user
+    // attempt to find channel IN USER'S LIST
+    cnode *c_node = find_channel(cname, user_p->mychannels);
+    if (c_node == NULL) {
+	fprintf(stderr, "rm_chfromu: can't find channel \"%s\" to remove FROM user \"%s\".\n", cname, uname);
+	return -1;
+    }
+    // if found, remove channel node from user's list
+    if ((c_node->prev == NULL) && (c_node->next == NULL)) { // case, ONLY NODE
+	user_p->mychannels = NULL; // just set the head to null
+    }
+    else if ((c_node->prev == NULL) && (c_node->next != NULL)) { // case: head, multiple nodes
+	user_p->mychannels = c_node->next; // head points to next down
+	(c_node->next)->prev == NULL; // new head points back to nothing
+    } else if ((c_node->prev != NULL) && (c_node->next != NULL)) { //case: middle of list
+	(c_node->next)->prev = c_node->prev; // bridge the gap
+	(c_node->prev)->next = c_node->next;
+    } else if ((c_node->prev != NULL) && (c_node->next == NULL)) { // case: tail, multiple nodes
+	(c_node->prev)->next = NULL; // tail points out to nothing
+    }
+    // in call cases, free the list node
+    free(c_node);
+    return 0;
 
 }
 
