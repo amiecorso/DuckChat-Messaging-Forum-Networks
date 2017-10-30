@@ -20,6 +20,7 @@ users = linked list of pointers to users (should users itself be the head pointe
 channels = head of linked list of pointers to channels
 user = struct with:
 - username
+- active channel
 - socket fd
 - last-active (gettimeofday that user was last active)
 - HEAD of a linked list of channel pointers
@@ -34,23 +35,6 @@ Server will create a ulist and a chanlist upon its establishment, and free them 
     ???
 
 3) write functions to handle each of the 8 possible requests
-login(uname)
-logout(uname)
-join(uname, chname))
-leave(uname, chname)
-say(uname, chname)
-list(uname, chname)
-who(uname, chname)
-keep_alive(uname) (update time)
- --> these may call subfunctions such as 
-create_user(uname)
-create_channel(chname)
-delete_user(uname)
-delete_channel(chname)
-add_utoch(uname, chname)
-add_chtou(uname, chname)
-rm_ufromch(uname, chname)
-rm_chfromu(chname, chname)
    --> some of these requests will package up packets of info and send to correct client
 */
 #include <stdio.h>
@@ -63,7 +47,64 @@ rm_chfromu(chname, chname)
 #define PORT 4000 // this will have to be replaced by an argument
 #define BUFSIZE 2048
 
+/* Forward Declarations */
+typedef struct user_data user;
+typedef struct channel_data channel;
+typedef struct ulist_node unode;
+typedef struct chlist_node cnode;
 
+void login(char *uname);
+void logout(char *uname);
+void join(char *uname, char *cname);
+void leave(char *uname, char *cname);
+void say(char *uname, char *cname);
+void list(char *uname, char *cname);
+void who(uname, cname);
+void keep_alive(char *uname); //update time stamp
+	// helpers:
+user *create_user(char *uname);		  // creates (if needed) a new user and installs in list
+channel *create_channel(char *cname);	  // creates (if needed) a new channel and installs in list
+user *find_user(char *uname, unode *head);	  // searches list for user with given name and returns pointer to user
+channel *find_channel(char *cname, cnode *head);  // searches list for channel of given name and returns pointer to channel
+
+// consider writing an install_user and install_channel function that takes a user * and a list HEAD...
+int delete_user(user *u);    	  i       // removes user from all channels, frees user data, deletes list node
+int delete_channel(channel *c);	          // frees channel data, deletes list node
+int add_utoch(user *u, channel *c);  // adds user to specified channel's list of users
+int add_chtou(user *u, channel *c);  // adds channel to specified user's list of channels
+int rm_ufromch(user *u, channel *c); // removes user from specified channel's list of users
+int rm_chfromu(user *u, channel *c); // removes channel from specified user's list of channels
+
+struct user_data {
+    char uname[USERNAME_MAX];
+    int sock_fd;
+    struct timeval last_active; // to populate with gettimeofday() and check activity    
+    cnode *mychannels; // pointer to linked list of channel pointers
+};
+
+struct channel_data {
+    char cname[CHANNEL_MAX];
+    int user_count; // channel gets deleted when this becomes 0;  rm_ufromch decrements
+    unode *myusers; // pointer to linked list of user pointers
+};
+
+struct ulist_node {
+    user *u;
+    unode *next;
+};
+
+struct clist_node {
+    channel *c;
+    cnode *next;
+};
+
+
+/* GLOBALS */
+unode *uhead; // head of my linked list of user pointers
+ccnode *chead; // head of my linked list of channel pointers
+
+
+/*========= MAIN ===============*/
 int
 //main(int argc, char **argv) {
 main() {
@@ -102,4 +143,92 @@ main() {
         // do we ever need to close the socket??
         // close(sockfd); ??
     }
+} // END MAIN
+
+/* ================ HELPER FUNCTIONS ========================================= */
+
+
+void login(char *uname)
+{
 }
+
+void logout(char *uname)
+{
+}
+
+void join(char *uname, char *cname)
+{
+}
+
+void leave(char *uname, char *cname)
+{
+}
+
+void say(char *uname, char *cname)
+{
+}
+
+void list(char *uname, char *cname)
+{
+}
+
+void who(uname, cname)
+{
+}
+
+void keep_alive(char *uname) //update time stamp
+{
+}
+
+/* DATA MANIPULATORS */
+user *create_user(char *uname)		  // creates (if needed) a new user and installs in list
+{
+
+}
+
+channel *create_channel(char *cname)	  // creates (if needed) a new channel and installs in list
+{
+
+}
+
+user *find_user(char *uname, unode *head)	  // searches list for user with given name and returns pointer to user
+{
+
+}
+
+channel *find_channel(char *cname, cnode *head)  // searches list for channel of given name and returns pointer to channel
+{
+
+}
+
+// consider writing an install_user and install_channel function that takes a user * and a list HEAD...
+int delete_user(user *u)    	  i       // removes user from all channels, frees user data, deletes list node
+{
+
+}
+
+int delete_channel(channel *c)	          // frees channel data, deletes list node
+{
+
+}
+
+int add_utoch(user *u, channel *c)  // adds user to specified channel's list of users
+{
+
+}
+
+int add_chtou(user *u, channel *c)  // adds channel to specified user's list of channels
+{
+
+}
+
+int rm_ufromch(user *u, channel *c) // removes user from specified channel's list of users
+{
+
+}
+
+int rm_chfromu(user *u, channel *c) // removes channel from specified user's list of channels
+{
+
+}
+
