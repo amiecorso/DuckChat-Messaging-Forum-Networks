@@ -47,7 +47,7 @@ int extract_ch(char *input, char *buf);
 // GLOBAL
 char active_ch[CHANNEL_MAX]; // currently active channel name
 char SERVER_HOST_NAME[64]; // is this buffer size ok??
-int SERVER_PORT = atoi(argv[2]);
+int SERVER_PORT; 
 char USERNAME[USERNAME_MAX];
 
 
@@ -66,6 +66,7 @@ main(int argc, char **argv) {
 	// - username can't be longer than 32 chars
 	// error checking for bad returns from gethostbyname()
     strcpy(SERVER_HOST_NAME, argv[1]);
+    SERVER_PORT = atoi(argv[2]);
     strcpy(USERNAME, argv[3]);
     strcpy(active_ch, "Common"); // default to common
 
@@ -166,7 +167,6 @@ main(int argc, char **argv) {
     } // end while(1)
 
 
-    }  
     close(sockfd); // close our socket
     return 0; // MAIN return
 }
