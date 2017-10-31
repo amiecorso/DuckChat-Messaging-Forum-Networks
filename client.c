@@ -51,6 +51,10 @@ struct channelnode {
     cnode *prev;
 };
 
+struct messagelabel {
+    int msgtype;
+    int numnames;
+};
 // GLOBAL
 char SERVER_HOST_NAME[64]; // is this buffer size ok??
 int SERVER_PORT; 
@@ -149,6 +153,7 @@ main(int argc, char **argv) {
     struct timeval tv; // timeout interval
     int retval;        // stores return val of select call
     int fdmax = sockfd; // largest file desc
+    struct messagelabel msglabel;
 
     FD_ZERO(&rfds);    // clears out rfds
     FD_SET(0, &rfds); // make stdin part of the rfds
@@ -156,10 +161,27 @@ main(int argc, char **argv) {
 
     tv.tv_sec = 0;
     tv.tv_usec = 500000; // check every half second
+    
     while (1) {
 	retval = select(fdmax + 1, &rfds, NULL, NULL, &tv);
 	if (retval > 0 && FD_ISSET(sockfd, &rfds)) { // was it the server?
-	    bytes_rec = recv(sockfd, (void *)&servermsg, 2048, 0);
+	    bytes_rec = recv(sockfd, (void *)&servermsg, 64, MSG_PEEK);
+	    memcpy(&msglabel, &servermsg, 64); // for inspection
+	    switch (msglabel.msgtype) {
+		case 0: { // text_say
+
+		}
+		case 1: { // text_list
+
+		}
+		case 2: { // text_who
+
+		}
+		case 3: { // Error
+
+		}
+
+	    }
 	    printf("Recieved %d bytes from server\n", bytes_rec);
 	}
 	else if (retval > 0 && FD_ISSET(0, &rfds)) { // was it the user typing?

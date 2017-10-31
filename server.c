@@ -17,6 +17,7 @@ Channel creation and deletion at server are handled implicitly. Whenever a chann
 #include <netinet/in.h>
 #include <netdb.h>
 #include <arpa/inet.h>
+#include <signal.h>
 #include "duckchat.h"
 
 #define UNUSED __attribute__((unused))
@@ -39,6 +40,10 @@ int add_utoch(char *uname, char *cname);  // adds user to specified channel's li
 int rm_chfromu(char *cname, char *uname); // removes channel from specified user's list of channels
 int rm_ufromch(char *uname, char *cname); // removes user from specified channel's list of users
 unode *getuserfromaddr(struct sockaddr_in *addr); // returns NULL if no such user by address, unode * otherwise
+void update_timestamp(struct sockaddr_in *addr); // updates timestamp for user with given address (if they exist)
+void force_logout();    // forcibly logs out users who haven't been active for at least two minutes
+void set_timer(int interval);
+
 
 struct user_data {
     char username[USERNAME_MAX];
@@ -72,6 +77,7 @@ cnode *chead = NULL; // head of my linked list of channel pointers
 int channelcount = 0; //running count of how many channels exist.
 char HOST_NAME[64]; // is this buffer size ok??
 int PORT; 
+struct itimerval timer;
 
 /*========= MAIN ===============*/
 int
@@ -106,6 +112,8 @@ main(int argc, char **argv) {
     socklen_t addr_len = sizeof(client_addr);
     struct request *raw_req = (struct request *)malloc(BUFSIZE);
 
+    signal(SIGALRM, force_logout); // register signal handler
+    set_timer(120); 
     while(1) {
         /* now loop, receiving data and printing what we received */
 	printf("waiting on port %d\n", PORT);
@@ -117,6 +125,7 @@ main(int argc, char **argv) {
 	}
 	// Acquire and examine the data from the request
 	memcpy(raw_req, buffer, BUFSIZE);
+	update_timestamp(&client_addr); // update timestamp for sender
 	switch (raw_req->req_type) {
 	    case 0: {
 		printf("It's a login msg!\n");
@@ -246,7 +255,7 @@ main(int argc, char **argv) {
 		whomsg->txt_type = 2;
 		whomsg->txt_nusernames = ch_p->count; // NEED TO FILL THIS OUT
 		int i = 0;
-		unode *nextnode = uhead;
+		unode *nextnode = ch_p->myusers; // going through CHANNEL's users
 		user *user_p;
 		while (nextnode != NULL) {
 		    user_p = nextnode->u;   // handle on the actual channel
@@ -565,3 +574,47 @@ unode *getuserfromaddr(struct sockaddr_in *addr)
     }
     return NULL;
 }
+
+void update_timestamp(struct sockaddr_in *addr)
+{
+    unode *unode_p = getuserfromaddr(addr);
+    if (unode_p == NULL) {
+	printf("Update timestamp: user is not logged in \n");
+	return;
+    }
+    user *user_p = unode_p->u;
+    gettimeofday(&(user_p->last_active), NULL);
+}
+
+void force_logout(UNUSED int sig)
+{
+    struct timeval current;
+    gettimeofday(&current, NULL); 
+    
+    long unsigned elapsed_usec;
+    long unsigned max_usec = 2000000; // = 2 seconds
+
+    unode *nextnode = uhead; 
+    while (nextnode != NULL) {
+        user *user_p = nextnode->u;
+        elapsed_usec = (current.tv_sec * 1000000 +  current.tv_usec) - 
+                                (user_p->last_active.tv_sec * 1000000 + user_p->last_active.tv_usec);
+	if (elapsed_usec >= 120000000) {
+	    delete_user(user_p->username);
+	    printf("Forcibly logging out user %s\n", user_p->username);
+	}
+	nextnode = nextnode->next;
+    }
+}
+
+void 
+set_timer(int interval)
+{ // takes an interval (in seconds) and sets and starts a timer
+    timer.it_value.tv_sec = interval;
+    timer.it_value.tv_usec = 0; 
+    timer.it_interval.tv_sec = interval;
+    timer.it_interval.tv_usec = 0;
+    if (setitimer(ITIMER_REAL, &timer, NULL) == -1) {
+	fprintf(stderr, "error calling setitimer()\n");
+    }
+}   
