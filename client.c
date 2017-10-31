@@ -239,6 +239,8 @@ pack_request(request_t code, char *input, void **next_request)
 {
     char channel_buf [32]; // for the cases that require us to get a channel
     switch (code) {
+        case -1:
+	    return -1;
 	case 1: {// EXIT
 	    struct request_logout *logout_req = (struct request_logout *)malloc(sizeof(struct request_logout));
 	    logout_req->req_type = REQ_LOGOUT;

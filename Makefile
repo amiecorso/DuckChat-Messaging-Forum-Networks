@@ -1,6 +1,6 @@
 cc=gcc
 
-CFLAGS=-Wall -W -g -Werror 
+CFLAGS=#-Wall -W -g #-Werror 
 
 
 all: client server

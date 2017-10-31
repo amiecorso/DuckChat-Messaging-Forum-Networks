@@ -13,12 +13,16 @@ If the server receives a message from a user who is not logged in, the server sh
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <sys/socket.h>
-#include <sys/time.h>
+#include <sys/types.h>
+#include <sys/time.h> // select
 #include <netinet/in.h>
+#include <netdb.h>
+#include <arpa/inet.h>
 #include "duckchat.h"
+
 #define UNUSED __attribute__((unused))
-#define PORT 4000 // this will have to be replaced by an argument
 #define BUFSIZE 2048
 
 /* Forward Declarations */
@@ -36,7 +40,7 @@ void list(char *uname, char *cname);
 void who(char *uname, char *cname);
 void keep_alive(char *uname); //update time stamp	
 // helpers:
-unode *create_user(char *uname);		  // creates (if needed) a new user and installs in list
+unode *create_user(char *uname, struct sockaddr_in *addr);		  // creates (if needed) a new user and installs in list
 cnode *create_channel(char *cname);	  // creates (if needed) a new channel and installs in list
 unode *find_user(char *uname, unode *head);	  // searches list for user with given name and returns pointer to user
 cnode *find_channel(char *cname, cnode *head); // searches list for channel of given name and returns pointer to channel
@@ -46,10 +50,11 @@ int add_chtou(char *cname, char *uname);  // adds channel to specified user's li
 int add_utoch(char *uname, char *cname);  // adds user to specified channel's list of users
 int rm_chfromu(char *cname, char *uname); // removes channel from specified user's list of channels
 int rm_ufromch(char *uname, char *cname); // removes user from specified channel's list of users
+unode *getuserfromaddr(struct sockaddr_in *addr); // returns NULL if no such user by address, unode * otherwise
 
 struct user_data {
     char username[USERNAME_MAX];
-    int sock_fd;
+    struct sockaddr_in u_addr;  // keeps track of user's network address
     struct timeval last_active; // to populate with gettimeofday() and check activity    
     cnode *mychannels; // pointer to linked list of channel pointers
 };
@@ -76,19 +81,25 @@ struct chlist_node {
 /* GLOBALS */
 unode *uhead = NULL; // head of my linked list of user pointers
 cnode *chead = NULL; // head of my linked list of channel pointers
-
+char HOST_NAME[64]; // is this buffer size ok??
+int PORT; 
 
 /*========= MAIN ===============*/
 int
-//main(int argc, char **argv) {
-main() {
-    struct sockaddr_in serv_addr, remote_addr;
-
-    socklen_t addr_len = sizeof(remote_addr);
-    int rec_len, sockfd;
-    unsigned char buf[BUFSIZE]; // receive buffer
-    // TODO parse command line arguments (host address, port num)
-
+main(int argc, char **argv) {
+    struct sockaddr_in serv_addr;
+    int sockfd;
+    // Parse command-line arguments
+    if (argc < 3) {
+        perror("Server: missing arguments.");
+        return 0;
+    }
+    // TODO: ADD ARG ERROR CHECKING
+	// - username can't be longer than 32 chars
+	// error checking for bad returns from gethostbyname()
+	// do we need to use gethostbyname??
+    strcpy(HOST_NAME, argv[1]);
+    PORT = atoi(argv[2]);
     if (( sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
         perror("server: can't open socket");
 
@@ -99,24 +110,105 @@ main() {
 
     if (bind(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
         perror("Server: can't bind local address");
-
+    create_channel("Common");    // default channel
+    // for receiving messages
+    unsigned char buffer[BUFSIZE]; // for incoming datagrams
+    int bytecount;
+    struct sockaddr_in client_addr;
+    socklen_t addr_len = sizeof(client_addr);
+    struct request *raw_req = (struct request *)malloc(BUFSIZE);
 
     while(1) {
         /* now loop, receiving data and printing what we received */
-        for (;;) {
-                printf("waiting on port %d\n", PORT);
-                rec_len = recvfrom(sockfd, buf, BUFSIZE, 0, (struct sockaddr *)&remote_addr, &addr_len);
-                printf("received %d bytes\n", rec_len);
-                if (rec_len > 0) {
+	printf("waiting on port %d\n", PORT);
+	bytecount = recvfrom(sockfd, buffer, BUFSIZE, 0, (struct sockaddr *)&client_addr, &addr_len);
+	printf("received %d bytes\n", bytecount);
+	if (bytecount > 0) {
+		buffer[bytecount] = '\0';
+		printf("received message: \"%s\"\n", buffer);
+	}
+	// Acquire and examine the data from the request
+	memcpy(raw_req, buffer, BUFSIZE);
+	switch (raw_req->req_type) {
+	    case 0: {
+		printf("It's a login msg!\n");
+		struct request_login *login = (struct request_login *)raw_req;
+		printf("username = %s\n", login->req_username);
+		if (getuserfromaddr(&client_addr) == NULL) {
+		    printf("Logging in user %s\n", login->req_username);
+		    create_user(login->req_username, &client_addr);
+                    add_utoch(login->req_username, "Common");             // becomes active on Common
+		}
+		break;
+	    }
+	    case 1: {
+		printf("It's a logout msg\n");
+		struct request_logout *logout = (struct request_logout *)raw_req;
+		unode *unode_p = getuserfromaddr(&client_addr);
+		if (unode_p == NULL) {
+		    printf("Can't log out user because they weren't logged in.\n");
+		    break;
+		}
+		delete_user((unode_p->u)->username);
+		break;
+	    }
+	    case 2: {
+		printf("It's a join msg\n");
+		struct request_join *join = (struct request_join *)raw_req;
+		// see if the channel already exists
+		// if so, add the user to channel.
+		// if not, create the channel, then add the user to the channel
+		break;
+	    }
+	    case 3: {
+		printf("It's a leave msg\n");
+		struct request_leave *leave = (struct request_leave *)raw_req;
+		// see if the user exists.
+		// if not, silently ignore...
+		// if so, try to remove the user from the channel
+		// try to remove the channel from the user
+		break;
+	    }
+	    case 4: {
+		printf("It's a say msg\n");
+		struct request_say *say = (struct request_say *)raw_req;
+		// see if the user exists (if not, ignore)
+		// package up a say message (I guess we already have one right here)
+		// find the channel to which this was said
+		// for each user that's part of the channel, send a sendto with their address
+		break;
+	    }
+	    case 5: {
+		printf("It's a list msg\n");
+		struct request_list *list = (struct request_list *)raw_req;
+		// see if the user exists (if not, ignore)
+		// package up a list of all the channel names
+		// send back to user
+		break;
+	    }
+	    case 6: {
+		printf("It's a who msg\n");
+		struct request_who *who = (struct request_who *)raw_req;
+		// see if the user exists (if not, ignore)
+		// find the channel the user specified (if it exists)
+		// package up a list of all the users on the channel
+		// send back to user
+		break;
+	    }
+	    case 7: {
+		printf("It's a keepalive msg\n");
+		struct request_keep_alive *keepalive = (struct request_keep_alive *)raw_req;
+		// see if user exists (if not, ignore)
+		// get a new timeofday
+		// find and update the user's timeofday stamp
+		break;
+	    }
+	} // end switch
 
-                        buf[rec_len] = '\0';
-                        printf("received message: \"%s\"\n", buf);
-                }
-                sendto(sockfd, buf, strlen((const char *)buf), 0, (struct sockaddr *)&remote_addr, addr_len);
-        }
-        // do we ever need to close the socket??
-        // close(sockfd); ??
-    }
+	sendto(sockfd, buffer, strlen((const char *)buffer), 0, (struct sockaddr *)&client_addr, addr_len);
+// do we ever need to close the socket??
+// close(sockfd); ??
+    } // end while
 } // END MAIN
 
 /* ================ HELPER FUNCTIONS ========================================= */
@@ -155,22 +247,25 @@ void keep_alive(UNUSED char *uname) //update time stamp
 }
 
 /* DATA MANIPULATORS */
-unode *create_user(char *uname)		  // creates (if needed) a new user and installs in list
+unode *create_user(char *uname, struct sockaddr_in *addr)		  // creates (if needed) a new user and installs in list
 {
     user *newuser = (user *)malloc(sizeof(user));
     if (newuser == NULL)
-	fprintf(stderr, "Error malloc'ing new user: %s\n", uname);
+	fprintf(stderr, "Error malloc'ing user\n");
     strcpy(newuser->username, uname);         // add the username
+    newuser->u_addr = *addr;
     gettimeofday(&(newuser->last_active), NULL); // user's initial activity time
     newuser->mychannels = NULL;		      // initially not on any channels
-    add_chtou("Common", uname);             // becomes active on Common
     // install in list of users
     unode *newnode = (unode *)malloc(sizeof(unode)); // new user list node
     newnode->u = newuser;  // data is pointer to our new user struct
     newnode->next = uhead; // new node points at whatever head WAS pointing at
     newnode->prev = NULL; // pointing backward at nothing
-    uhead->prev = newnode; //old head points back at new node
+    if (uhead != NULL)
+        uhead->prev = newnode; //old head points back at new node
     uhead = newnode;       // finally, update head to be our new node
+
+    //add_utoch(uname, "Common");             // becomes active on Common
     return newnode;			      // finally, return pointer to newly created user
 }
 
@@ -190,6 +285,7 @@ cnode *create_channel(char *cname)	  // creates (if needed) a new channel and in
     if (chead != NULL) 
         chead->prev = newnode;
     chead = newnode;
+    printf("Creating channel %s\n", cname);
     return newnode; // finally, return pointer to new channel
 }
 
@@ -223,9 +319,10 @@ void delete_user(char *uname)    	         // removes user from all channels, fr
     // go through user's channel's and remove user from each channel (decrement channel counts)
     unode *u_node;
     if ((u_node = find_user(uname, uhead)) == NULL) { // get a handle on the list node
-	fprintf(stdout, "User %s doesn't exist.\n", uname);
+	fprintf(stdout, "Delete_user: User %s doesn't exist.\n", uname);
     }
     user *user_p = u_node->u;
+    printf("Logging out user %s\n", user_p->username);
     channel *ch_p;
     cnode *next_channel = user_p->mychannels; // start at the head
     while (next_channel != NULL) {
@@ -411,3 +508,18 @@ int rm_chfromu(char *cname, char *uname) // removes channel from specified user'
     return 0;
 }
 
+// returns NULL if no such user associated with address.  Returns unode * to user list node otherwise.
+unode *getuserfromaddr(struct sockaddr_in *addr)
+{
+    unode *nextnode = uhead; // start at the head
+    struct sockaddr_in u_addr;
+    while (nextnode != NULL) { // while we've still got list to search...
+        u_addr = (nextnode->u)->u_addr; // get a handle on the sockaddr_in for convenience
+        if (((addr->sin_addr).s_addr == u_addr.sin_addr.s_addr) && 
+		((addr->sin_port) == u_addr.sin_port)) { // if we've got a match
+	    return nextnode; // return pointer to this ulist node!
+        }
+        nextnode = nextnode->next; // move down the list
+    }
+    return NULL;
+}
