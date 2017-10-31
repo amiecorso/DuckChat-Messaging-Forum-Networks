@@ -24,7 +24,7 @@ TODO:
 #include "raw.h"
 
 #define UNUSED __attribute__((unused))
-#define BUFSIZE 65507 // largest possible size of UDP packet
+#define BUFSIZE 512 // largest possible size of UDP packet
 
 // forward declarations
 typedef struct ch channel;
@@ -162,17 +162,33 @@ main(int argc, char **argv) {
     tv.tv_sec = 0;
     tv.tv_usec = 500000; // check every half second
     
+    struct text_say *say;
+    struct text_list *list;
+    struct text_who *who;
     while (1) {
 	retval = select(fdmax + 1, &rfds, NULL, NULL, &tv);
 	if (retval > 0 && FD_ISSET(sockfd, &rfds)) { // was it the server?
-	    bytes_rec = recv(sockfd, (void *)&servermsg, 64, MSG_PEEK);
-	    memcpy(&msglabel, &servermsg, 64); // for inspection
+	    bytes_rec = recv(sockfd, (void *)&servermsg, BUFSIZE, 0);
+	    memcpy(&msglabel, servermsg, BUFSIZE); // for inspection
+		printf("msglabel.msgtype = %d\n", msglabel.msgtype);
 	    switch (msglabel.msgtype) {
 		case 0: { // text_say
-
+			printf("entered case 0\n");
+		    say = (struct text_say *)malloc(sizeof(struct text_say));
+		    memcpy(say, &msglabel, BUFSIZE);
+		    fprintf(stdout, "[%s][%s]: %s\n", say->txt_channel, say->txt_username, say->txt_text);
+		    free(say);
+		    break;
 		}
 		case 1: { // text_list
-
+		    list = (struct text_list *)malloc(sizeof(struct text_list));
+		    memcpy(list, &msglabel, BUFSIZE);
+		    int i;
+		    printf("Existing channels:\n");
+		    for (i = 0; i < list->txt_nchannels; i++) {
+			printf("%s\n", list->txt_channels[i].ch_channel);
+		    }
+		    break;
 		}
 		case 2: { // text_who
 
@@ -301,6 +317,7 @@ pack_request(request_t code, char *input, void **next_request)
 	}
 	case 4: {// SAY
 	    struct request_say *say_req = (struct request_say *)malloc(sizeof(struct request_say));
+	    memset(say_req, 0, sizeof(struct request_list));
 	    say_req->req_type = REQ_SAY;
 	    strcpy(say_req->req_channel, active_ch); // store active channel
 	    strcpy(say_req->req_text, input); // store msg 
@@ -309,6 +326,7 @@ pack_request(request_t code, char *input, void **next_request)
 	}
 	case 5: {// LIST 
 	    struct request_list *list_req = (struct request_list *)malloc(sizeof(struct request_list));
+	    memset(list_req, 0, sizeof(struct request_list));
 	    list_req->req_type = REQ_LIST;
 	    *next_request = list_req;
 	    return 4;

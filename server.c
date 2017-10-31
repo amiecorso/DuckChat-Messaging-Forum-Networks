@@ -369,16 +369,19 @@ void delete_user(char *uname)    	         // removes user from all channels, fr
     unode *u_node;
     if ((u_node = find_user(uname, uhead)) == NULL) { // get a handle on the list node
 	fprintf(stdout, "Delete_user: User %s doesn't exist.\n", uname);
+	return;
     }
     user *user_p = u_node->u;
     printf("Logging out user %s\n", user_p->username);
     channel *ch_p;
-    cnode *next_channel = user_p->mychannels; // start at the head
-    while (next_channel != NULL) {
-        ch_p = next_channel->c; // get a handle on the channel
+    cnode *current_channel = user_p->mychannels; // start at the head
+    cnode *next_channel;
+    while (current_channel != NULL) {
+        ch_p = current_channel->c; // get a handle on the channel
         rm_ufromch(user_p->username, ch_p->channelname); // remove user from channel (this will call delete_channel if it's empty)
-        free(next_channel); 		// FREE this linked list node
-        next_channel = next_channel->next; // move to the next one (if there is one)
+        next_channel = current_channel->next; // (store the next one to look at)
+        free(current_channel); 		// FREE this linked list node
+	current_channel = next_channel; // update with next one to look at
     }
     // now that all channels have been left (and nodes freed), free the user's struct
     free(user_p);
@@ -387,8 +390,8 @@ void delete_user(char *uname)    	         // removes user from all channels, fr
 	uhead = NULL; // just set the head to null
     }
     else if ((u_node->prev == NULL) && (u_node->next != NULL)) { // case: head, multiple nodes
+	(u_node->next)->prev == NULL; // new head points back to nothing
 	uhead = u_node->next; // head points to next down
-	//(u_node->next)->prev == NULL; // new head points back to nothing
     } else if ((u_node->prev != NULL) && (u_node->next != NULL)) { //case: middle of list
 	(u_node->next)->prev = u_node->prev; // bridge the gap
 	(u_node->prev)->next = u_node->next;
@@ -413,8 +416,8 @@ void delete_channel(char *cname)	          // frees channel data, deletes list n
 	chead = NULL; // just set the head to null
     }
     else if ((c_node->prev == NULL) && (c_node->next != NULL)) { // case: head, multiple nodes
+	(c_node->next)->prev == NULL; // new head points back to nothing
 	chead = c_node->next; // head points to next down
-	//(c_node->next)->prev == NULL; // new head points back to nothing
     } else if ((c_node->prev != NULL) && (c_node->next != NULL)) { //case: middle of list
 	(c_node->next)->prev = c_node->prev; // bridge the gap
 	(c_node->prev)->next = c_node->next;
@@ -510,8 +513,8 @@ int rm_ufromch(char *uname, char *cname) // removes user from specified channel'
 	ch_p->myusers = NULL; // just set the head to null
     }
     else if ((u_node->prev == NULL) && (u_node->next != NULL)) { // case: head, multiple nodes
+	(u_node->next)->prev == NULL; // new head points back to nothing
 	ch_p->myusers = u_node->next; // head points to next down
-	//(u_node->next)->prev == NULL; // new head points back to nothing
     } else if ((u_node->prev != NULL) && (u_node->next != NULL)) { //case: middle of list
 	(u_node->next)->prev = u_node->prev; // bridge the gap
 	(u_node->prev)->next = u_node->next;
@@ -546,8 +549,8 @@ int rm_chfromu(char *cname, char *uname) // removes channel from specified user'
 	user_p->mychannels = NULL; // just set the head to null
     }
     else if ((c_node->prev == NULL) && (c_node->next != NULL)) { // case: head, multiple nodes
+	(c_node->next)->prev == NULL; // new head points back to nothing
 	user_p->mychannels = c_node->next; // head points to next down
-	//(c_node->next)->prev == NULL; // new head points back to nothing
     } else if ((c_node->prev != NULL) && (c_node->next != NULL)) { //case: middle of list
 	(c_node->next)->prev = c_node->prev; // bridge the gap
 	(c_node->prev)->next = c_node->next;
