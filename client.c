@@ -7,6 +7,7 @@ Fall 2017
 /* 
 TODO:
 - does gethostbyname() handle already-IP addresses??
+- does login (code 0) need to be a user option?
 */
 
 #include <stdio.h>
@@ -23,6 +24,8 @@ TODO:
 #include "raw.h"
 
 #define UNUSED __attribute__((unused))
+#define BUFSIZE 65507 // largest possible size of UDP packet
+
 // forward declarations
 typedef struct ch channel;
 typedef struct channelnode cnode;
@@ -138,7 +141,7 @@ main(int argc, char **argv) {
     int bytes_to_send;
 
     // variables for SERVER INPUT
-    char servermsg[2048]; // need bigger??
+    char servermsg[BUFSIZE]; 
     int bytes_rec;
 
     // set up fields for SELECT()

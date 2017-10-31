@@ -3,12 +3,9 @@ Author: Amie Corso
 532 Intro to Networks - Program 1
 Fall 2017
 
-The server takes two arguments: the host address to bind to and the port number. The host address can be either 'localhost', the IP host name of the machine that the server is running on, or the IP address of an interface connected to the machine. Once the server is running, clients may use the host name and port to connect to the server. Note that if you use 'localhost', you will not be able to connect to the server from another machine, but you also do not have to worry about dropped packets.
 The server does not need to directly interact with the user in any way. However, it is strongly recommended that the server outputs debugging messages to the console. For example, each time the server receives a message from a client, it can output a line describing the contents of the message and who it is from using the following format: [channel][user][message] where message denotes a command and its parameters (if any).
 
 Channel creation and deletion at server are handled implicitly. Whenever a channel has no users, it is deleted. Whenever a user joins a channel that did not exist, it is created.
-
-If the server receives a message from a user who is not logged in, the server should silently ignore the message.
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,7 +20,7 @@ If the server receives a message from a user who is not logged in, the server sh
 #include "duckchat.h"
 
 #define UNUSED __attribute__((unused))
-#define BUFSIZE 2048
+#define BUFSIZE 512 
 
 /* Forward Declarations */
 typedef struct user_data user;
@@ -81,6 +78,7 @@ struct chlist_node {
 /* GLOBALS */
 unode *uhead = NULL; // head of my linked list of user pointers
 cnode *chead = NULL; // head of my linked list of channel pointers
+int channelcount = 0; //running count of how many channels exist.
 char HOST_NAME[64]; // is this buffer size ok??
 int PORT; 
 
@@ -95,7 +93,6 @@ main(int argc, char **argv) {
         return 0;
     }
     // TODO: ADD ARG ERROR CHECKING
-	// - username can't be longer than 32 chars
 	// error checking for bad returns from gethostbyname()
 	// do we need to use gethostbyname??
     strcpy(HOST_NAME, argv[1]);
@@ -155,34 +152,76 @@ main(int argc, char **argv) {
 	    case 2: {
 		printf("It's a join msg\n");
 		struct request_join *join = (struct request_join *)raw_req;
+		// see if the user is already logged in (if not, forget the message)
+		unode *unode_p = getuserfromaddr(&client_addr);
+		if (unode_p == NULL) // if user doesn't exist, break
+			break;
 		// see if the channel already exists
-		// if so, add the user to channel.
-		// if not, create the channel, then add the user to the channel
+		cnode *ch_p = find_channel(join->req_channel, chead);
+		if (ch_p == NULL) {     // if the channel doesn't exist yet
+		    create_channel(join->req_channel); // create it first
+		}
+		// add the user to the channel and the channel to the user
+		user *user_p = unode_p->u;
+		add_utoch(user_p->username, join->req_channel);
+		add_chtou(join->req_channel, user_p->username);
+		printf("User %s joined channel %s\n", user_p->username, join->req_channel);	
 		break;
 	    }
 	    case 3: {
 		printf("It's a leave msg\n");
 		struct request_leave *leave = (struct request_leave *)raw_req;
-		// see if the user exists.
-		// if not, silently ignore...
+		// see if the user is already logged in (if not, forget the message)
+		unode *unode_p = getuserfromaddr(&client_addr);
+		if (unode_p == NULL) // if user doesn't exist, break
+			break;
 		// if so, try to remove the user from the channel
-		// try to remove the channel from the user
+		user *user_p = unode_p->u;
+		// try to remove user from channel
+		rm_ufromch(user_p->username, leave->req_channel);
+		rm_chfromu(leave->req_channel, user_p->username);
+		printf("%s left channel %s\n", user_p->username, leave->req_channel);
 		break;
 	    }
 	    case 4: {
 		printf("It's a say msg\n");
 		struct request_say *say = (struct request_say *)raw_req;
-		// see if the user exists (if not, ignore)
-		// package up a say message (I guess we already have one right here)
-		// find the channel to which this was said
-		// for each user that's part of the channel, send a sendto with their address
+		// see if the user is already logged in (if not, forget the message)
+		unode *unode_p = getuserfromaddr(&client_addr);
+		if (unode_p == NULL) // if user doesn't exist, break
+			break;
+		user *user_p = unode_p->u;
+		struct text_say *saymsg = (struct text_say *)malloc(sizeof(struct text_say));
+		strcpy(saymsg->txt_channel, say->req_channel);
+		saymsg->txt_type = 0;
+		strcpy(saymsg->txt_username, user_p->username);
+		strcpy(saymsg->txt_text, say->req_text);
+		cnode *cnode_p = find_channel(say->req_channel, chead); // handle on channel node
+		channel *ch_p = cnode_p->c; // handle on actual channel		
+		unode *nextnode = ch_p->myusers; // start at the head of the channel's list
+		user *user_on_channel;
+                while (nextnode != NULL) {
+		    user_on_channel = nextnode->u; // get a handle on this user
+		    printf("sending msg to user: %s\n", user_on_channel->username);
+		    // send the say msg to their address
+	            sendto(sockfd, saymsg, sizeof(struct text_say), 0, (const struct sockaddr *)&(user_on_channel->u_addr), addr_len);
+		    nextnode = nextnode->next;		    
+		}
+		free(saymsg);
 		break;
 	    }
 	    case 5: {
 		printf("It's a list msg\n");
 		struct request_list *list = (struct request_list *)raw_req;
 		// see if the user exists (if not, ignore)
-		// package up a list of all the channel names
+		unode *unode_p = getuserfromaddr(&client_addr);
+		if (unode_p == NULL) // if user doesn't exist, break
+			break;
+		user *user_p = unode_p->u;
+		struct text_list *listmsg;
+		memset(&listmsg, 0, sizeof(struct text_list));
+		listmsg.txt_type = 1;
+		listmsg.txt_nchannels = 1; // NEED TO FILL THIS OUT
 		// send back to user
 		break;
 	    }
@@ -253,7 +292,7 @@ unode *create_user(char *uname, struct sockaddr_in *addr)		  // creates (if need
     if (newuser == NULL)
 	fprintf(stderr, "Error malloc'ing user\n");
     strcpy(newuser->username, uname);         // add the username
-    newuser->u_addr = *addr;
+    memcpy(&(newuser->u_addr), addr, sizeof(struct sockaddr_in));
     gettimeofday(&(newuser->last_active), NULL); // user's initial activity time
     newuser->mychannels = NULL;		      // initially not on any channels
     // install in list of users
@@ -271,6 +310,13 @@ unode *create_user(char *uname, struct sockaddr_in *addr)		  // creates (if need
 
 cnode *create_channel(char *cname)	  // creates (if needed) a new channel and installs in list
 {
+    cnode *existingchannel = find_channel(cname, chead);
+    if (existingchannel != NULL){
+	printf("Channel %s already exists\n", cname);
+	return Null;
+    }
+    // otherwise, we can create it
+    channelcount++;
     channel *newchannel = (channel *)malloc(sizeof(channel));
     if (newchannel == NULL)
 	fprintf(stderr, "Error malloc'ing new channel; %s\n", cname);
@@ -374,6 +420,7 @@ void delete_channel(char *cname)	          // frees channel data, deletes list n
     }
     // finally, free the node in the clist   
     free(c_node);
+    channelcount--; // and decrement channel count
 }
 
 int add_utoch(char *uname, char *cname)  // adds user to specified channel's list of users
