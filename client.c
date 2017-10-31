@@ -322,7 +322,7 @@ do_switch(char *newchannel)
 int
 do_join(char *newchannel)
 {
-    if (find_channel(newchannel, chead) == NULL) {
+    if (find_channel(newchannel, chead) != NULL) {
 	printf("Already subscribed to channel %s\n", newchannel);
 	return -1;
     }
@@ -440,7 +440,8 @@ cnode *add_channel(char *cname)	  // creates (if needed) a new channel and insta
     newnode->c = newchannel;
     newnode->next = chead;
     newnode->prev = NULL;
-    chead->prev = newnode;
+    if (chead != NULL)
+        chead->prev = newnode;
     chead = newnode;
     return newnode; // finally, return pointer to new channel
 }
@@ -453,11 +454,6 @@ void delete_channel(char *cname)	          // frees channel data, deletes list n
     if (c_node == NULL)
 	fprintf(stdout, "Channel %s doesn't exist.\n", cname);
     channel *ch_p = c_node->c;
-    // make sure it's not "Common", which we need to keep
-    if (strcmp(ch_p->channelname, "Common") == 0) {
-	fprintf(stdout, "Preserving channel \"Common\".\n");
-	return;
-    }
     // free the channel struct
     free(ch_p);
     // update linkages in the list: depends on case 

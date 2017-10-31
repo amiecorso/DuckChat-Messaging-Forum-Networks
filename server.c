@@ -69,7 +69,7 @@ struct ulist_node {
 struct chlist_node {
     channel *c;
     cnode *next;
-    unode *prev;
+    cnode *prev;
 };
 
 
@@ -260,11 +260,6 @@ void delete_channel(char *cname)	          // frees channel data, deletes list n
     if (c_node == NULL)
 	fprintf(stdout, "Channel %s doesn't exist.\n", cname);
     channel *ch_p = c_node->c;
-    // make sure it's not "Common", which we need to keep
-    if (strcmp(ch_p->channelname, "Common") == 0) { 
-	fprintf(stdout, "Preserving channel \"Common\".\n");
-	return;
-    }
     // free the channel struct
     free(ch_p);
     // update linkages in the list: depends on case 
