@@ -28,16 +28,7 @@ typedef struct channel_data channel;
 typedef struct ulist_node unode;
 typedef struct chlist_node cnode;
 
-void login(char *uname);
-void logout(char *uname);
-void join(char *uname, char *cname);
-void leave(char *uname, char *cname);
-void say(char *uname, char *cname);
-void list(char *uname, char *cname);
-void who(char *uname, char *cname);
-void keep_alive(char *uname); //update time stamp	
-// helpers:
-unode *create_user(char *uname, struct sockaddr_in *addr);		  // creates (if needed) a new user and installs in list
+unode *create_user(char *uname, struct sockaddr_in *addr);  // creates (if needed) a new user and installs in list
 cnode *create_channel(char *cname);	  // creates (if needed) a new channel and installs in list
 unode *find_user(char *uname, unode *head);	  // searches list for user with given name and returns pointer to user
 cnode *find_channel(char *cname, cnode *head); // searches list for channel of given name and returns pointer to channel
@@ -218,20 +209,54 @@ main(int argc, char **argv) {
 		if (unode_p == NULL) // if user doesn't exist, break
 			break;
 		user *user_p = unode_p->u;
-		struct text_list *listmsg;
-		memset(&listmsg, 0, sizeof(struct text_list));
-		listmsg.txt_type = 1;
-		listmsg.txt_nchannels = 1; // NEED TO FILL THIS OUT
-		// send back to user
+		struct text_list *listmsg = (struct text_list *)malloc(sizeof(struct text_list) + channelcount * sizeof(struct channel_info));
+		memset(listmsg, 0, sizeof(struct text_list) + (channelcount * sizeof(struct channel_info)));
+		listmsg->txt_type = 1;
+		listmsg->txt_nchannels = channelcount; // NEED TO FILL THIS OUT
+		int i = 0;
+		cnode *nextnode = chead;
+		channel *ch_p;
+		while (nextnode != NULL) {
+		    ch_p = nextnode->c;   // handle on the actual channel
+		    printf("ch_p->channelname = %s\n", ch_p->channelname);
+		    strcpy(listmsg->txt_channels[i++].ch_channel, ch_p->channelname);
+		    nextnode = nextnode->next;
+		}
+		int packetsize = sizeof(struct text_list) + channelcount * sizeof(struct channel_info);
+		// send back to client
+	        sendto(sockfd, listmsg, packetsize, 0, (const struct sockaddr *)&client_addr, addr_len);
+	        free(listmsg);	
 		break;
 	    }
 	    case 6: {
 		printf("It's a who msg\n");
 		struct request_who *who = (struct request_who *)raw_req;
 		// see if the user exists (if not, ignore)
-		// find the channel the user specified (if it exists)
-		// package up a list of all the users on the channel
-		// send back to user
+		unode *unode_p = getuserfromaddr(&client_addr);
+		if (unode_p == NULL) // if user doesn't exist, break
+			break;
+		cnode *cnode_p = find_channel(who->req_channel, chead);
+		if (cnode_p == NULL) {
+		    printf("Channel doesn't exist\n");
+		    break;
+		}
+		channel *ch_p = cnode_p->c;
+		struct text_who *whomsg = (struct text_who *)malloc(sizeof(struct text_who) + ch_p->count * sizeof(struct user_info));
+		memset(whomsg, 0, sizeof(struct text_who) + (ch_p->count * sizeof(struct user_info)));
+		whomsg->txt_type = 2;
+		whomsg->txt_nusernames = ch_p->count; // NEED TO FILL THIS OUT
+		int i = 0;
+		unode *nextnode = uhead;
+		user *user_p;
+		while (nextnode != NULL) {
+		    user_p = nextnode->u;   // handle on the actual channel
+		    strcpy(whomsg->txt_users[i++].us_username, user_p->username);
+		    nextnode = nextnode->next;
+		}
+		int packetsize = sizeof(struct text_who) + ch_p->count * sizeof(struct user_info);
+		// send back to client
+	        sendto(sockfd, whomsg, packetsize, 0, (const struct sockaddr *)&client_addr, addr_len);
+	        free(whomsg);	
 		break;
 	    }
 	    case 7: {
@@ -244,7 +269,7 @@ main(int argc, char **argv) {
 	    }
 	} // end switch
 
-	sendto(sockfd, buffer, strlen((const char *)buffer), 0, (struct sockaddr *)&client_addr, addr_len);
+	//sendto(sockfd, buffer, strlen((const char *)buffer), 0, (struct sockaddr *)&client_addr, addr_len);
 // do we ever need to close the socket??
 // close(sockfd); ??
     } // end while
@@ -253,37 +278,6 @@ main(int argc, char **argv) {
 /* ================ HELPER FUNCTIONS ========================================= */
 
 
-void login(UNUSED char *uname)
-{
-}
-
-void logout(UNUSED char *uname)
-{
-}
-
-void join(UNUSED char *uname, UNUSED char *cname)
-{
-}
-
-void leave(UNUSED char *uname, UNUSED char *cname)
-{
-}
-
-void say(UNUSED char *uname, UNUSED char *cname)
-{
-}
-
-void list(UNUSED char *uname, UNUSED char *cname)
-{
-}
-
-void who(UNUSED char *uname, UNUSED char *cname)
-{
-}
-
-void keep_alive(UNUSED char *uname) //update time stamp
-{
-}
 
 /* DATA MANIPULATORS */
 unode *create_user(char *uname, struct sockaddr_in *addr)		  // creates (if needed) a new user and installs in list
@@ -313,7 +307,7 @@ cnode *create_channel(char *cname)	  // creates (if needed) a new channel and in
     cnode *existingchannel = find_channel(cname, chead);
     if (existingchannel != NULL){
 	printf("Channel %s already exists\n", cname);
-	return Null;
+	return NULL;
     }
     // otherwise, we can create it
     channelcount++;
@@ -449,6 +443,7 @@ int add_utoch(char *uname, char *cname)  // adds user to specified channel's lis
     if (ch_p->myusers != NULL) // only if the head wasn't NULL do we have a prev to update
 	(ch_p->myusers)->prev = newlistnode; 
     ch_p->myusers = newlistnode; // finally, update the pos of head
+    ch_p->count++;
     return 0; // success! added user to a channel
 }
 
