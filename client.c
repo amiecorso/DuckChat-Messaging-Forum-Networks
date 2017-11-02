@@ -4,12 +4,6 @@ Author: Amie Corso
 Fall 2017
 */
 
-/* 
-TODO:
-- does gethostbyname() handle already-IP addresses??
-- handle txt_error from server
-*/
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,6 +37,7 @@ void delete_channel(char *cname);	          // frees channel data, deletes list 
 cnode *add_channel(char *cname);	  // creates (if needed) a new channel and installs in list
 void set_timer(int interval);
 void timer_handler(UNUSED int sig);
+void print_backspaces();
 
 struct ch {
     char channelname[32];
@@ -176,13 +171,18 @@ main(int argc, char **argv) {
 	    memcpy(raw_text, servermsg, sizeof(struct text)); // for inspection
 	    switch (raw_text->txt_type) {
 		case 0: { // text_say
+		    print_backspaces();
 		    say = (struct text_say *)malloc(sizeof(struct text_say));
 		    memcpy(say, &servermsg, sizeof(struct text_say));
 		    fprintf(stdout, "[%s][%s]: %s\n", say->txt_channel, say->txt_username, say->txt_text);
 		    free(say);
+		    printf(">");
+		    printf("%s", input_buf);
+		    fflush(stdout);
 		    break;
 		}
 		case 1: { // text_list
+		    print_backspaces();
 		    list = (struct text_list *)malloc(sizeof(struct text_list));
 		    memcpy(list, &servermsg, sizeof(struct text_list));
 		    int bytesneeded = sizeof(struct text_list) + (list->txt_nchannels) * sizeof(struct channel_info);
@@ -194,9 +194,13 @@ main(int argc, char **argv) {
 		    for (i = 0; i < list->txt_nchannels; i++) {
 			printf("%s\n", list->txt_channels[i].ch_channel);
 		    }
+		    printf(">");
+		    printf("%s", input_buf);
+		    fflush(stdout);
 		    break;
 		}
 		case 2: { // text_who
+		    print_backspaces();
 		    who = (struct text_who *)malloc(sizeof(struct text_who));
 		    memcpy(who, &servermsg, sizeof(struct text_who));
 		    int bytesneeded = sizeof(struct text_who) + (who->txt_nusernames) * sizeof(struct user_info);
@@ -208,38 +212,48 @@ main(int argc, char **argv) {
 		    for (i = 0; i < who->txt_nusernames; i++) {
 			printf("%s\n", who->txt_users[i].us_username);
 		    }
+		    printf(">");
+		    printf("%s", input_buf);
+		    fflush(stdout);
 		    break;
 
 		}
 		case 3: { // Error
+		    //print_backspaces()
 
 		}
 
 	    }
-        printf(">");
-        fflush(stdout);
 	}
 	else if (retval > 0 && FD_ISSET(0, &rfds)) { // was it the user typing?
-		while ((nextin = fgetc(stdin)) != '\n') { // waiting for enter key
+		if ((nextin = fgetc(stdin)) != '\n') {
 		    printf("%c", nextin); // display for user to see
+		    fflush(stdout);
 		    input_buf[buf_in++] = (char) nextin; // store in buffer	
-		}
-		printf("\n");
-		input_buf[buf_in] = '\0';
-		code = (request_t) classify_input(input_buf);
-		bytes_to_send = pack_request(code, input_buf, &next_request);
-		// SEND CASES
-		if (bytes_to_send > 0) {
-		    if (sendto(sockfd, next_request, bytes_to_send, 0, 
-				(struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-			perror("sendto failed");
-			return 0; // DO WE WANT TO ACTUALLY RETURN?
-		    }  
-		    free(next_request);
 		} 
-		if (code == 1) // if "/exit"
-		    break;   // break out of main while loop
-		buf_in = 0; // reset our buffer's index.
+		else {
+		input_buf[buf_in] = '\0';
+		if (strlen(input_buf) > 0) {
+		        printf("\n");
+			code = (request_t) classify_input(input_buf);
+			bytes_to_send = pack_request(code, input_buf, &next_request);
+			// SEND CASES
+			if (bytes_to_send > 0) {
+			    if (sendto(sockfd, next_request, bytes_to_send, 0, 
+					(struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+				perror("sendto failed");
+				return 0; // DO WE WANT TO ACTUALLY RETURN?
+			    }  
+			    free(next_request);
+			} 
+			if (code == 1) // if "/exit"
+			    break;   // break out of main while loop
+			input_buf[0] = '\0';
+			buf_in = 0; // reset our buffer's index.
+                        printf(">");
+		        fflush(stdout);
+		}
+	        }
 	} // end if-user
 
 	FD_ZERO(&rfds); // reset select fields
@@ -299,7 +313,6 @@ pack_request(request_t code, char *input, void **next_request)
 	    struct request_logout *logout_req = (struct request_logout *)malloc(sizeof(struct request_logout));
 	    logout_req->req_type = REQ_LOGOUT;
 	    *next_request = logout_req;
-	    printf(">");
 	    fflush(stdout);
 	    return 4;
 	}
@@ -314,7 +327,6 @@ pack_request(request_t code, char *input, void **next_request)
 	    join_req->req_type = REQ_JOIN;
 	    strcpy(join_req->req_channel, channel_buf); // put the channel in the struct
 	    *next_request = join_req;
-	    printf(">");
 	    fflush(stdout);
 	    return 36;
 	}
@@ -327,7 +339,6 @@ pack_request(request_t code, char *input, void **next_request)
 	    leave_req->req_type = REQ_LEAVE;
 	    strcpy(leave_req->req_channel, channel_buf); // put the channel in the struct
 	    *next_request = leave_req;
-	    printf(">");
 	    fflush(stdout);
 	    return 36;
 	}
@@ -571,3 +582,12 @@ set_timer(int interval)
 	fprintf(stderr, "error calling setitimer()\n");
     }
 }   
+
+void
+print_backspaces()
+{
+    int i;
+    for (i = 0; i < 100; i++)
+	printf("\b");
+    fflush(stdout);
+}

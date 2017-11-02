@@ -116,13 +116,15 @@ main(int argc, char **argv) {
 	}
 	// Acquire and examine the data from the request
 	memcpy(raw_req, buffer, BUFSIZE);
-	update_timestamp(&client_addr); // update timestamp for sender
 	switch (raw_req->req_type) {
 	    case 0: {
 		struct request_login *login = (struct request_login *)raw_req;
-		if (getuserfromaddr(&client_addr) == NULL) {
+		if ((getuserfromaddr(&client_addr) == NULL) && (find_user(login->req_username, uhead) == NULL)) {
 		    printf("Logging in user %s\n", login->req_username);
 		    create_user(login->req_username, &client_addr);
+		}
+		else {
+		    printf("User %s already logged in.\n", login->req_username);
 		}
 		break;
 	    }
@@ -163,8 +165,8 @@ main(int argc, char **argv) {
 		// if so, try to remove the user from the channel
 		user *user_p = unode_p->u;
 		// try to remove user from channel
-		rm_ufromch(user_p->username, leave->req_channel);
 		rm_chfromu(leave->req_channel, user_p->username);
+		rm_ufromch(user_p->username, leave->req_channel);
 		printf("%s left channel %s\n", user_p->username, leave->req_channel);
 		break;
 	    }
@@ -257,6 +259,7 @@ main(int argc, char **argv) {
 		break;
 	    }
 	} // end switch
+	update_timestamp(&client_addr); // update timestamp for sender
 
 	//sendto(sockfd, buffer, strlen((const char *)buffer), 0, (struct sockaddr *)&client_addr, addr_len);
 // do we ever need to close the socket??
@@ -384,9 +387,10 @@ void delete_channel(char *cname)	          // frees channel data, deletes list n
 {
     // channel SHOULD have no more user's in list
     cnode *c_node = find_channel(cname, chead);
-    if (c_node == NULL)
+    if (c_node == NULL) {
 	fprintf(stdout, "Channel %s doesn't exist.\n", cname);
 	return;
+    }
     channel *ch_p = c_node->c;
     // free the channel struct
     free(ch_p);
@@ -559,7 +563,6 @@ void update_timestamp(struct sockaddr_in *addr)
 {
     unode *unode_p = getuserfromaddr(addr);
     if (unode_p == NULL) {
-	printf("Update timestamp: user is not logged in \n");
 	return;
     }
     user *user_p = unode_p->u;
