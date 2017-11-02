@@ -153,7 +153,7 @@ main(int argc, char **argv) {
     struct timeval tv; // timeout interval
     int retval;        // stores return val of select call
     int fdmax = sockfd; // largest file desc
-    struct messagelabel msglabel;
+    struct text *raw_text = (struct text *)malloc(sizeof(struct text));
 
     FD_ZERO(&rfds);    // clears out rfds
     FD_SET(0, &rfds); // make stdin part of the rfds
@@ -169,20 +169,25 @@ main(int argc, char **argv) {
 	retval = select(fdmax + 1, &rfds, NULL, NULL, &tv);
 	if (retval > 0 && FD_ISSET(sockfd, &rfds)) { // was it the server?
 	    bytes_rec = recv(sockfd, (void *)&servermsg, BUFSIZE, 0);
-	    memcpy(&msglabel, servermsg, BUFSIZE); // for inspection
-		printf("msglabel.msgtype = %d\n", msglabel.msgtype);
-	    switch (msglabel.msgtype) {
+	    memcpy(raw_text, servermsg, sizeof(struct text)); // for inspection
+		printf("raw_text->txt_type = %d\n", raw_text->txt_type);
+	    switch (raw_text->txt_type) {
 		case 0: { // text_say
 			printf("entered case 0\n");
 		    say = (struct text_say *)malloc(sizeof(struct text_say));
-		    memcpy(say, &msglabel, BUFSIZE);
+		    memcpy(say, &servermsg, sizeof(struct text_say));
 		    fprintf(stdout, "[%s][%s]: %s\n", say->txt_channel, say->txt_username, say->txt_text);
 		    free(say);
 		    break;
 		}
 		case 1: { // text_list
 		    list = (struct text_list *)malloc(sizeof(struct text_list));
-		    memcpy(list, &msglabel, BUFSIZE);
+		    memcpy(list, &servermsg, sizeof(struct text_list));
+			printf("list->txt_nchannels = %d\n", list->txt_nchannels);
+		    int bytesneeded = sizeof(struct text_list) + (list->txt_nchannels) * sizeof(struct channel_info);
+		    free(list);
+		    list = (struct text_list *)malloc(bytesneeded);
+		    memcpy(list, &servermsg, bytesneeded);
 		    int i;
 		    printf("Existing channels:\n");
 		    for (i = 0; i < list->txt_nchannels; i++) {
@@ -191,6 +196,19 @@ main(int argc, char **argv) {
 		    break;
 		}
 		case 2: { // text_who
+		    who = (struct text_who *)malloc(sizeof(struct text_who));
+		    memcpy(who, &servermsg, sizeof(struct text_who));
+			printf("who->txt_nuser = %d\n", who->txt_nusernames);
+		    int bytesneeded = sizeof(struct text_who) + (who->txt_nusernames) * sizeof(struct user_info);
+		    free(who);
+		    who = (struct text_who *)malloc(bytesneeded);
+		    memcpy(who, &servermsg, bytesneeded);
+		    int i;
+		    printf("Users on channel %s:\n", who->txt_channel);
+		    for (i = 0; i < who->txt_nusernames; i++) {
+			printf("%s\n", who->txt_users[i].us_username);
+		    }
+		    break;
 
 		}
 		case 3: { // Error
