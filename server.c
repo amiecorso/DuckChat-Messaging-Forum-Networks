@@ -3,9 +3,6 @@ Author: Amie Corso
 532 Intro to Networks - Program 1
 Fall 2017
 
-The server does not need to directly interact with the user in any way. However, it is strongly recommended that the server outputs debugging messages to the console. For example, each time the server receives a message from a client, it can output a line describing the contents of the message and who it is from using the following format: [channel][user][message] where message denotes a command and its parameters (if any).
-
-Channel creation and deletion at server are handled implicitly. Whenever a channel has no users, it is deleted. Whenever a user joins a channel that did not exist, it is created.
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -89,9 +86,6 @@ main(int argc, char **argv) {
         perror("Server: missing arguments.");
         return 0;
     }
-    // TODO: ADD ARG ERROR CHECKING
-	// error checking for bad returns from gethostbyname()
-	// do we need to use gethostbyname??
     strcpy(HOST_NAME, argv[1]);
     PORT = atoi(argv[2]);
     if (( sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
@@ -116,30 +110,23 @@ main(int argc, char **argv) {
     set_timer(120); 
     while(1) {
         /* now loop, receiving data and printing what we received */
-	printf("waiting on port %d\n", PORT);
 	bytecount = recvfrom(sockfd, buffer, BUFSIZE, 0, (struct sockaddr *)&client_addr, &addr_len);
-	printf("received %d bytes\n", bytecount);
 	if (bytecount > 0) {
 		buffer[bytecount] = '\0';
-		printf("received message: \"%s\"\n", buffer);
 	}
 	// Acquire and examine the data from the request
 	memcpy(raw_req, buffer, BUFSIZE);
 	update_timestamp(&client_addr); // update timestamp for sender
 	switch (raw_req->req_type) {
 	    case 0: {
-		printf("It's a login msg!\n");
 		struct request_login *login = (struct request_login *)raw_req;
-		printf("username = %s\n", login->req_username);
 		if (getuserfromaddr(&client_addr) == NULL) {
 		    printf("Logging in user %s\n", login->req_username);
 		    create_user(login->req_username, &client_addr);
-                    add_utoch(login->req_username, "Common");             // becomes active on Common
 		}
 		break;
 	    }
 	    case 1: {
-		printf("It's a logout msg\n");
 		struct request_logout *logout = (struct request_logout *)raw_req;
 		unode *unode_p = getuserfromaddr(&client_addr);
 		if (unode_p == NULL) {
@@ -150,7 +137,6 @@ main(int argc, char **argv) {
 		break;
 	    }
 	    case 2: {
-		printf("It's a join msg\n");
 		struct request_join *join = (struct request_join *)raw_req;
 		// see if the user is already logged in (if not, forget the message)
 		unode *unode_p = getuserfromaddr(&client_addr);
@@ -169,7 +155,6 @@ main(int argc, char **argv) {
 		break;
 	    }
 	    case 3: {
-		printf("It's a leave msg\n");
 		struct request_leave *leave = (struct request_leave *)raw_req;
 		// see if the user is already logged in (if not, forget the message)
 		unode *unode_p = getuserfromaddr(&client_addr);
@@ -184,7 +169,6 @@ main(int argc, char **argv) {
 		break;
 	    }
 	    case 4: {
-		printf("It's a say msg\n");
 		struct request_say *say = (struct request_say *)raw_req;
 		// see if the user is already logged in (if not, forget the message)
 		unode *unode_p = getuserfromaddr(&client_addr);
@@ -211,7 +195,6 @@ main(int argc, char **argv) {
 		break;
 	    }
 	    case 5: {
-		printf("It's a list msg\n");
 		struct request_list *list = (struct request_list *)raw_req;
 		// see if the user exists (if not, ignore)
 		unode *unode_p = getuserfromaddr(&client_addr);
@@ -227,7 +210,6 @@ main(int argc, char **argv) {
 		channel *ch_p;
 		while (nextnode != NULL) {
 		    ch_p = nextnode->c;   // handle on the actual channel
-		    printf("ch_p->channelname = %s\n", ch_p->channelname);
 		    strcpy(listmsg->txt_channels[i++].ch_channel, ch_p->channelname);
 		    nextnode = nextnode->next;
 		}
@@ -238,7 +220,6 @@ main(int argc, char **argv) {
 		break;
 	    }
 	    case 6: {
-		printf("It's a who msg\n");
 		struct request_who *who = (struct request_who *)raw_req;
 		// see if the user exists (if not, ignore)
 		unode *unode_p = getuserfromaddr(&client_addr);
@@ -246,7 +227,7 @@ main(int argc, char **argv) {
 			break;
 		cnode *cnode_p = find_channel(who->req_channel, chead);
 		if (cnode_p == NULL) {
-		    printf("Channel doesn't exist\n");
+		    printf("Bad who request: channel %s doesn't exist\n", who->req_channel);
 		    break;
 		}
 		channel *ch_p = cnode_p->c;
@@ -269,7 +250,6 @@ main(int argc, char **argv) {
 		break;
 	    }
 	    case 7: {
-		printf("It's a keepalive msg\n");
 		struct request_keep_alive *keepalive = (struct request_keep_alive *)raw_req;
 		// see if user exists (if not, ignore)
 		// get a new timeofday
@@ -306,8 +286,6 @@ unode *create_user(char *uname, struct sockaddr_in *addr)		  // creates (if need
     if (uhead != NULL)
         uhead->prev = newnode; //old head points back at new node
     uhead = newnode;       // finally, update head to be our new node
-
-    //add_utoch(uname, "Common");             // becomes active on Common
     return newnode;			      // finally, return pointer to newly created user
 }
 
@@ -408,6 +386,7 @@ void delete_channel(char *cname)	          // frees channel data, deletes list n
     cnode *c_node = find_channel(cname, chead);
     if (c_node == NULL)
 	fprintf(stdout, "Channel %s doesn't exist.\n", cname);
+	return;
     channel *ch_p = c_node->c;
     // free the channel struct
     free(ch_p);
@@ -534,14 +513,12 @@ int rm_chfromu(char *cname, char *uname) // removes channel from specified user'
     // attempt to find user 
     unode *u_node = find_user(uname, uhead);
     if (u_node == NULL) {
-	fprintf(stderr, "rm_chfromu: User \"%s\" doesn't seem to exist.\n", uname);
 	return -1;
     }
     user *user_p = u_node->u; // handle on user
     // attempt to find channel IN USER'S LIST
     cnode *c_node = find_channel(cname, user_p->mychannels);
     if (c_node == NULL) {
-	fprintf(stderr, "rm_chfromu: can't find channel \"%s\" to remove FROM user \"%s\".\n", cname, uname);
 	return -1;
     }
     // if found, remove channel node from user's list

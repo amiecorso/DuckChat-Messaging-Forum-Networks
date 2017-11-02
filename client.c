@@ -7,7 +7,7 @@ Fall 2017
 /* 
 TODO:
 - does gethostbyname() handle already-IP addresses??
-- does login (code 0) need to be a user option?
+- handle txt_error from server
 */
 
 #include <stdio.h>
@@ -20,11 +20,12 @@ TODO:
 #include <netinet/in.h>
 #include <netdb.h>
 #include <arpa/inet.h>
+#include <signal.h>
 #include "duckchat.h"
 #include "raw.h"
 
 #define UNUSED __attribute__((unused))
-#define BUFSIZE 512 // largest possible size of UDP packet
+#define BUFSIZE 65507 // largest possible size of UDP packet
 
 // forward declarations
 typedef struct ch channel;
@@ -40,6 +41,8 @@ int help_strchr(char buf[], char c);
 cnode *find_channel(char *cname, cnode *head);  
 void delete_channel(char *cname);	          // frees channel data, deletes list node
 cnode *add_channel(char *cname);	  // creates (if needed) a new channel and installs in list
+void set_timer(int interval);
+void timer_handler(UNUSED int sig);
 
 struct ch {
     char channelname[32];
@@ -51,16 +54,16 @@ struct channelnode {
     cnode *prev;
 };
 
-struct messagelabel {
-    int msgtype;
-    int numnames;
-};
 // GLOBAL
-char SERVER_HOST_NAME[64]; // is this buffer size ok??
+char SERVER_HOST_NAME[128];
 int SERVER_PORT; 
 char USERNAME[USERNAME_MAX];
 char active_ch[CHANNEL_MAX]; // currently active channel name (affected by switch requests)
+struct sockaddr_in client_addr; // our local port information
+struct sockaddr_in serv_addr; // remote server information
+int sockfd; // socket file descriptor
 cnode *chead; // list of channels to which a user is subscribed (head of linked list)
+struct itimerval timer; // for keepalive msgs
 
 int
 main(int argc, char **argv) {
@@ -70,12 +73,14 @@ main(int argc, char **argv) {
 
     // Parse command-line arguments
     if (argc < 4) {
-        perror("Client: missing arguments.");
+        perror("Usage: ./client <server hostaddress> <server port> <username>\n");
         return 0;
     }
-    // TODO: ADD ARG ERROR CHECKING
-	// - username can't be longer than 32 chars
-	// error checking for bad returns from gethostbyname()
+    if (strlen(argv[3]) > 32) {
+	printf("Username can't be longer than 32 characters.\n");
+	fflush(stdout);
+	return 0;
+    }
     strcpy(SERVER_HOST_NAME, argv[1]);
     SERVER_PORT = atoi(argv[2]);
     strcpy(USERNAME, argv[3]);
@@ -84,8 +89,6 @@ main(int argc, char **argv) {
     add_channel("Common");
 
     // set up CLIENT INFO and SOCKET
-    struct sockaddr_in client_addr; // our local port information
-    int sockfd; // socket file descriptor
     if (( sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) { // attempt to open socket
         perror("Client: cannot open socket.");
         return 0;
@@ -104,7 +107,6 @@ main(int argc, char **argv) {
     }
 
     // specify SERVER INFO
-    struct sockaddr_in serv_addr; // remote server information
     bzero((char *)&serv_addr, sizeof(serv_addr));// set fields to NULL
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(SERVER_PORT);
@@ -135,6 +137,9 @@ main(int argc, char **argv) {
 	return 0;
     }  
     
+    // set up signal handler and start timer for keepalives
+    signal(SIGALRM, timer_handler); // register timer handler
+    set_timer(60); // set timer interval and start timer
     /* MAIN WHILE LOOP */
     // variables for USER INPUT
     char input_buf[1024] = {0}; // store gradual typed input
@@ -150,30 +155,27 @@ main(int argc, char **argv) {
 
     // set up fields for SELECT()
     fd_set rfds;      // set of file descriptors for select() to watch
-    struct timeval tv; // timeout interval
     int retval;        // stores return val of select call
     int fdmax = sockfd; // largest file desc
     struct text *raw_text = (struct text *)malloc(sizeof(struct text));
 
     FD_ZERO(&rfds);    // clears out rfds
     FD_SET(0, &rfds); // make stdin part of the rfds
+    FD_SET(1, &rfds); // and stdout?
     FD_SET(sockfd, &rfds); // make our socket part of the rfds
 
-    tv.tv_sec = 0;
-    tv.tv_usec = 500000; // check every half second
-    
     struct text_say *say;
     struct text_list *list;
     struct text_who *who;
+        printf(">");
+        fflush(stdout);
     while (1) {
-	retval = select(fdmax + 1, &rfds, NULL, NULL, &tv);
+	retval = select(fdmax + 1, &rfds, NULL, NULL, NULL);
 	if (retval > 0 && FD_ISSET(sockfd, &rfds)) { // was it the server?
 	    bytes_rec = recv(sockfd, (void *)&servermsg, BUFSIZE, 0);
 	    memcpy(raw_text, servermsg, sizeof(struct text)); // for inspection
-		printf("raw_text->txt_type = %d\n", raw_text->txt_type);
 	    switch (raw_text->txt_type) {
 		case 0: { // text_say
-			printf("entered case 0\n");
 		    say = (struct text_say *)malloc(sizeof(struct text_say));
 		    memcpy(say, &servermsg, sizeof(struct text_say));
 		    fprintf(stdout, "[%s][%s]: %s\n", say->txt_channel, say->txt_username, say->txt_text);
@@ -183,7 +185,6 @@ main(int argc, char **argv) {
 		case 1: { // text_list
 		    list = (struct text_list *)malloc(sizeof(struct text_list));
 		    memcpy(list, &servermsg, sizeof(struct text_list));
-			printf("list->txt_nchannels = %d\n", list->txt_nchannels);
 		    int bytesneeded = sizeof(struct text_list) + (list->txt_nchannels) * sizeof(struct channel_info);
 		    free(list);
 		    list = (struct text_list *)malloc(bytesneeded);
@@ -198,7 +199,6 @@ main(int argc, char **argv) {
 		case 2: { // text_who
 		    who = (struct text_who *)malloc(sizeof(struct text_who));
 		    memcpy(who, &servermsg, sizeof(struct text_who));
-			printf("who->txt_nuser = %d\n", who->txt_nusernames);
 		    int bytesneeded = sizeof(struct text_who) + (who->txt_nusernames) * sizeof(struct user_info);
 		    free(who);
 		    who = (struct text_who *)malloc(bytesneeded);
@@ -216,44 +216,37 @@ main(int argc, char **argv) {
 		}
 
 	    }
-	    printf("Recieved %d bytes from server\n", bytes_rec);
+        printf(">");
+        fflush(stdout);
 	}
 	else if (retval > 0 && FD_ISSET(0, &rfds)) { // was it the user typing?
 		while ((nextin = fgetc(stdin)) != '\n') { // waiting for enter key
 		    printf("%c", nextin); // display for user to see
 		    input_buf[buf_in++] = (char) nextin; // store in buffer	
 		}
+		printf("\n");
 		input_buf[buf_in] = '\0';
 		code = (request_t) classify_input(input_buf);
-		printf("\nrequest CODE = %d\n", code);
 		bytes_to_send = pack_request(code, input_buf, &next_request);
-		printf("pack_request returned: %d\n", bytes_to_send);
 		// SEND CASES
-		if (bytes_to_send == -1) {
-		    //problem
-		    printf("Invalid command.\n");
-		}
-		else if (bytes_to_send == 8) {
-		    printf("switchinnnnn\n");
-		}
-		else {
+		if (bytes_to_send > 0) {
 		    if (sendto(sockfd, next_request, bytes_to_send, 0, 
 				(struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
 			perror("sendto failed");
 			return 0; // DO WE WANT TO ACTUALLY RETURN?
 		    }  
 		    free(next_request);
-		} // end WHILE WAITING FOR ENTER KEY
+		} 
+		if (code == 1) // if "/exit"
+		    break;   // break out of main while loop
 		buf_in = 0; // reset our buffer's index.
 	} // end if-user
 
 	FD_ZERO(&rfds); // reset select fields
 	FD_SET(0, &rfds);
+	FD_SET(1, &rfds);
 	FD_SET(sockfd, &rfds); 
-	tv.tv_sec = 0;
-	tv.tv_usec = 500000; 
     } // end while(1)
-
 
     close(sockfd); // close our socket
     return 0; // MAIN return
@@ -276,15 +269,15 @@ classify_input(char *in)
     else { // we have a leading '/'
 	if (strncmp(in, "/exit", 5) == 0) // EXIT
 	    return 1;
-	if (strncmp(in, "/join", 5) == 0) // JOIN
+	if (strncmp(in, "/join ", 6) == 0) // JOIN
 	    return 2;
-	if (strncmp(in, "/leave", 6) == 0) // LEAVE
+	if (strncmp(in, "/leave ", 7) == 0) // LEAVE
 	    return 3;
 	if (strncmp(in, "/list", 5) == 0 ) // LIST
 	    return 5;
-	if (strncmp(in, "/who", 4) == 0) // WHO
+	if (strncmp(in, "/who ", 5) == 0) // WHO
 	    return 6;
-	if (strncmp(in, "/switch", 7) == 0) // SWITCH --> create own return code, 8
+	if (strncmp(in, "/switch ", 7) == 0) // SWITCH --> create own return code, 8
 	    return 8;
 	printf("Unknown request.\n");
 	return -1;
@@ -299,27 +292,30 @@ pack_request(request_t code, char *input, void **next_request)
     char channel_buf [32]; // for the cases that require us to get a channel
     switch (code) {
         case -1:
+	    printf(">");
+	    fflush(stdout);
 	    return -1;
 	case 1: {// EXIT
 	    struct request_logout *logout_req = (struct request_logout *)malloc(sizeof(struct request_logout));
 	    logout_req->req_type = REQ_LOGOUT;
 	    *next_request = logout_req;
+	    printf(">");
+	    fflush(stdout);
 	    return 4;
 	}
 	case 2: {// JOIN (req_channel[CHANNEL_MAX])
-	    printf("Packing join command\n");
 	    if (extract_ch(input, channel_buf) == -1) {
-		printf("Join: bad channel\n");
 		return -1;
 	    }
             if (do_join(channel_buf) == -1) {
-		printf("do_join returned -1\n");
 	        return -1;
 	    }
 	    struct request_join *join_req  = (struct request_join *)malloc(sizeof(struct request_join));
 	    join_req->req_type = REQ_JOIN;
 	    strcpy(join_req->req_channel, channel_buf); // put the channel in the struct
 	    *next_request = join_req;
+	    printf(">");
+	    fflush(stdout);
 	    return 36;
 	}
 	case 3: {// LEAVE (req_channel)
@@ -331,6 +327,8 @@ pack_request(request_t code, char *input, void **next_request)
 	    leave_req->req_type = REQ_LEAVE;
 	    strcpy(leave_req->req_channel, channel_buf); // put the channel in the struct
 	    *next_request = leave_req;
+	    printf(">");
+	    fflush(stdout);
 	    return 36;
 	}
 	case 4: {// SAY
@@ -361,9 +359,10 @@ pack_request(request_t code, char *input, void **next_request)
 	case 8: { // SWITCH (req_channel) ?? weird case
 	    if (extract_ch(input, channel_buf) == -1)
 		return -1;
-	    if (do_switch(channel_buf) == -1)
-	        return -1;
-	    return 8;
+	    do_switch(channel_buf);
+	    printf(">");
+	    fflush(stdout);
+	    return -1;
 	}
     }
     return 0;
@@ -547,3 +546,28 @@ cnode *find_channel(char *cname, cnode *head)  // searches list for channel of g
     }
     return NULL;
 }
+
+void timer_handler(UNUSED int sig)
+{
+    struct request_keep_alive *keepalive = (struct request_keep_alive *)malloc(sizeof(struct request_keep_alive));
+    keepalive->req_type = REQ_KEEP_ALIVE;
+    
+    if (sendto(sockfd, keepalive, 4, 0, 
+		(struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+	perror("sendto failed");
+    }  
+    free(keepalive);
+
+}
+
+void 
+set_timer(int interval)
+{ // takes an interval (in seconds) and sets and starts a timer
+    timer.it_value.tv_sec = interval;
+    timer.it_value.tv_usec = 0; 
+    timer.it_interval.tv_sec = interval;
+    timer.it_interval.tv_usec = 0;
+    if (setitimer(ITIMER_REAL, &timer, NULL) == -1) {
+	fprintf(stderr, "error calling setitimer()\n");
+    }
+}   
