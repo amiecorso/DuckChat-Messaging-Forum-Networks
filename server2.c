@@ -23,8 +23,10 @@ Fall 2017
 /* Forward Declarations */
 typedef struct user_data user;
 typedef struct channel_data channel;
+typedef struct server_data server;
 typedef struct ulist_node unode;
 typedef struct chlist_node cnode;
+typedef struct slist_node snode;
 
 unode *create_user(char *uname, struct sockaddr_in *addr);  // creates (if needed) a new user and installs in list
 cnode *create_channel(char *cname);	  // creates (if needed) a new channel and installs in list
@@ -53,6 +55,11 @@ struct channel_data {
     char channelname[CHANNEL_MAX];
     int count; // channel gets deleted when this becomes 0;  rm_ufromch decrements
     unode *myusers; // pointer to linked list of user pointers
+    snode *sub_servers; // linked list of subscribed servers to this channel.
+};
+
+struct server_data {
+    struct sockaddr_in remote_addr;
 };
 
 struct ulist_node {
@@ -65,6 +72,12 @@ struct chlist_node {
     channel *c;
     cnode *next;
     cnode *prev;
+};
+
+struct slist_node {
+    server *s;
+    snode *next;
+    snode *prev;
 };
 
 
@@ -146,6 +159,7 @@ main(int argc, char **argv) {
 		if (unode_p == NULL) // if user doesn't exist, break
 			break;
 		// see if the channel already exists
+		print_debug_msg(&client_addr, 2, "recv", (unode_p->u)->username, join->req_channel, NULL);
 		cnode *ch_p = find_channel(join->req_channel, chead);
 		if (ch_p == NULL) {     // if the channel doesn't exist yet
 		    create_channel(join->req_channel); // create it first
@@ -165,6 +179,7 @@ main(int argc, char **argv) {
 			break;
 		// if so, try to remove the user from the channel
 		user *user_p = unode_p->u;
+		print_debug_msg(&client_addr, 3, "recv", (unode_p->u)->username, leave->req_channel, NULL);
 		// try to remove user from channel
 		rm_ufromch(user_p->username, leave->req_channel);
 		rm_chfromu(leave->req_channel, user_p->username);
@@ -178,6 +193,7 @@ main(int argc, char **argv) {
 		if (unode_p == NULL) // if user doesn't exist, break
 			break;
 		user *user_p = unode_p->u;
+		print_debug_msg(&client_addr, 4, "recv", (unode_p->u)->username, say->req_channel, say->req_text);
 		struct text_say *saymsg = (struct text_say *)malloc(sizeof(struct text_say));
 		strcpy(saymsg->txt_channel, say->req_channel);
 		saymsg->txt_type = 0;
@@ -202,6 +218,7 @@ main(int argc, char **argv) {
 		unode *unode_p = getuserfromaddr(&client_addr);
 		if (unode_p == NULL) // if user doesn't exist, break
 			break;
+		print_debug_msg(&client_addr, 5, "recv", NULL, NULL, NULL);
 		struct text_list *listmsg = (struct text_list *)malloc(sizeof(struct text_list) + channelcount * sizeof(struct channel_info));
 		memset(listmsg, 0, sizeof(struct text_list) + (channelcount * sizeof(struct channel_info)));
 		listmsg->txt_type = 1;
@@ -226,6 +243,7 @@ main(int argc, char **argv) {
 		unode *unode_p = getuserfromaddr(&client_addr);
 		if (unode_p == NULL) // if user doesn't exist, break
 			break;
+		print_debug_msg(&client_addr, 6, "recv", NULL, who->req_channel, NULL);
 		cnode *cnode_p = find_channel(who->req_channel, chead);
 		if (cnode_p == NULL) {
 		    printf("Bad who request: channel %s doesn't exist\n", who->req_channel);
@@ -615,30 +633,46 @@ void print_debug_msg(struct sockaddr_in *recv_addr, int msg_type, char *send_or_
     char *their_ip = "127.0.0.1"; // extract from recv_addr
     int their_port = ntohs(recv_addr->sin_port); // extract from recv_addr (make sure correct byte order)
     char *type; // i.e. say, join, etc.
-
+    if (username == NULL)
+	username = "";
+    if (channel == NULL)
+	channel = "";
+    if (message == NULL)
+	message = "";
     switch (msg_type) {
         case 0:
 	    type = "Request Login";
+	    break;
 	case 1:
 	    type = "Request Logout";
+	    break;
 	case 2:
 	    type = "Request Join";
+	    break;
 	case 3:
 	    type = "Request Leave";
+	    break;
 	case 4:
 	    type = "Request Say";
+	    break;
 	case 5:
 	    type = "Request List";
+	    break;
 	case 6:
 	    type = "Request Who";
+	    break;
 	case 7:
 	    type = "Request Keepalive";
+	    break;
 	case 8:
 	    type = "S2S Join";
+	    break;
 	case 9:
 	    type = "S2S Leave";
+	    break;
 	case 10:
 	    type = "S2S Say";
+	    break;
     } //end switch
     printf("%s:%d  %s:%d %s %s %s %s %s\n", my_ip, my_port, their_ip, their_port, send_or_recv, type, username, channel, message);
 }
