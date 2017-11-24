@@ -3,8 +3,13 @@ Author: Amie Corso
 532 Intro to Networks - Program 2 
 Fall 2017
 
-TODO: fix print formatting for debug msgs (use strcat?)
-      fix bug from proj 1
+TODO: 
+fix bug from project 1
+get arg parsing going for multiple servers
+fix print formatting for debug msgs (use strcat?)
+get neighbors data structure going for servers
+update add/remove channel/user functions to include servers??
+complete necessary functions for adding servers to channel and removing them from channels...
      
 */
 #include <stdio.h>
@@ -184,6 +189,9 @@ main(int argc, char **argv) {
 		unode *unode_p = getuserfromaddr(&client_addr);
 		if (unode_p == NULL) // if user doesn't exist, break
 			break;
+		cnode *cnode_p = find_channel(say->req_channel, chead); // handle on channel node
+		if (cnode_p == NULL)
+			break;
 		user *user_p = unode_p->u;
 		print_debug_msg(&client_addr, 4, "recv", (unode_p->u)->username, say->req_channel, say->req_text);
 		struct text_say *saymsg = (struct text_say *)malloc(sizeof(struct text_say));
@@ -191,7 +199,6 @@ main(int argc, char **argv) {
 		saymsg->txt_type = 0;
 		strcpy(saymsg->txt_username, user_p->username);
 		strcpy(saymsg->txt_text, say->req_text);
-		cnode *cnode_p = find_channel(say->req_channel, chead); // handle on channel node
 		channel *ch_p = cnode_p->c; // handle on actual channel		
 		unode *nextnode = ch_p->myusers; // start at the head of the channel's list
 		user *user_on_channel;
