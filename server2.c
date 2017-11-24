@@ -4,12 +4,14 @@ Author: Amie Corso
 Fall 2017
 
 TODO: 
-fix bug from project 1
 get arg parsing going for multiple servers
-fix print formatting for debug msgs (use strcat?)
 get neighbors data structure going for servers
 update add/remove channel/user functions to include servers??
 complete necessary functions for adding servers to channel and removing them from channels...
+get recent-ID data structure going
+- modular indexing
+- generate_ID
+- check_ID
      
 */
 #include <stdio.h>
@@ -633,15 +635,28 @@ void print_debug_msg(struct sockaddr_in *recv_addr, int msg_type, char *send_or_
     char *their_ip = "127.0.0.1"; // extract from recv_addr
     int their_port = ntohs(recv_addr->sin_port); // extract from recv_addr (make sure correct byte order)
     char *type; // i.e. say, join, etc.
-    //char format_username[32];
-    //char format_channel[32];
-    //char format_msg[64];
+    char format_username[32];
+    char format_channel[32];
+    char format_msg[64];
     if (username == NULL)
-	username = "";
+	strcpy(format_username, "");
+    else {
+	strcpy(format_username, " ");
+	strcat(format_username, username);
+    }
     if (channel == NULL)
-	channel = "";
+	strcpy(format_channel, "");
+    else {
+        strcpy(format_channel, " ");
+	strcat(format_channel, channel);
+    }
     if (message == NULL)
-	message = "";
+	strcpy(format_msg, "");
+    else {
+	strcpy(format_msg, " \"");
+	strcat(format_msg, message);
+	strcat(format_msg, "\"");
+    }
     switch (msg_type) {
         case 0:
 	    type = "Request Login";
@@ -677,5 +692,5 @@ void print_debug_msg(struct sockaddr_in *recv_addr, int msg_type, char *send_or_
 	    type = "S2S Say";
 	    break;
     } //end switch
-    printf("%s:%d  %s:%d %s %s %s %s %s\n", my_ip, my_port, their_ip, their_port, send_or_recv, type, username, channel, message);
+    printf("%s:%d  %s:%d %s %s %s %s %s\n", my_ip, my_port, their_ip, their_port, send_or_recv, type, format_username, format_channel, format_msg);
 }
