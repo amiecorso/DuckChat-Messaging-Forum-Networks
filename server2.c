@@ -1,8 +1,11 @@
 /* DuckChat Server program
 Author: Amie Corso
-532 Intro to Networks - Program 1
+532 Intro to Networks - Program 2 
 Fall 2017
 
+TODO: fix print formatting for debug msgs (use strcat?)
+      fix bug from proj 1
+     
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,10 +19,8 @@ Fall 2017
 #include <arpa/inet.h>
 #include <signal.h>
 #include "duckchat.h"
-
 #define UNUSED __attribute__((unused))
 #define BUFSIZE 512 
-
 /* Forward Declarations */
 typedef struct user_data user;
 typedef struct channel_data channel;
@@ -27,7 +28,6 @@ typedef struct server_data server;
 typedef struct ulist_node unode;
 typedef struct chlist_node cnode;
 typedef struct slist_node snode;
-
 unode *create_user(char *uname, struct sockaddr_in *addr);  // creates (if needed) a new user and installs in list
 cnode *create_channel(char *cname);	  // creates (if needed) a new channel and installs in list
 unode *find_user(char *uname, unode *head);	  // searches list for user with given name and returns pointer to user
@@ -43,44 +43,37 @@ void update_timestamp(struct sockaddr_in *addr); // updates timestamp for user w
 void force_logout();    // forcibly logs out users who haven't been active for at least two minutes
 void set_timer(int interval);
 void print_debug_msg(struct sockaddr_in *recv_addr, int msg_type, char *send_or_recv, char *username, char *channel, char *message);
-
+// STRUCTS
 struct user_data {
     char username[USERNAME_MAX];
     struct sockaddr_in u_addr;  // keeps track of user's network address
     struct timeval last_active; // to populate with gettimeofday() and check activity    
     cnode *mychannels; // pointer to linked list of channel pointers
 };
-
 struct channel_data {
     char channelname[CHANNEL_MAX];
     int count; // channel gets deleted when this becomes 0;  rm_ufromch decrements
     unode *myusers; // pointer to linked list of user pointers
     snode *sub_servers; // linked list of subscribed servers to this channel.
 };
-
 struct server_data {
     struct sockaddr_in remote_addr;
 };
-
 struct ulist_node {
     user *u;
     unode *next;
     unode *prev;
 };
-
 struct chlist_node {
     channel *c;
     cnode *next;
     cnode *prev;
 };
-
 struct slist_node {
     server *s;
     snode *next;
     snode *prev;
 };
-
-
 /* GLOBALS */
 unode *uhead = NULL; // head of my linked list of user pointers
 cnode *chead = NULL; // head of my linked list of channel pointers
@@ -88,7 +81,6 @@ int channelcount = 0; //running count of how many channels exist.
 char HOST_NAME[64]; // is this buffer size ok??
 int PORT; 
 struct itimerval timer;
-
 /*========= MAIN ===============*/
 int
 main(int argc, char **argv) {
@@ -271,30 +263,31 @@ main(int argc, char **argv) {
 	    case 8: { // S2S join
 		struct s2s_join *s2sjoin = (struct s2s_join *)raw_req;
 		printf("not unused anymore %s\n", s2sjoin->req_channel);
+		// check to see if I am already subscribed to this channel.  If so, we're done.
+		// if not, subscribe to the channel (create the channel)
+			// and then forward the join message to remaining interfaces
+		
 		
 	    }
 	    case 9: { // S2S leave
 		struct s2s_leave *s2sleave = (struct s2s_leave *)raw_req;
 		printf("not unused anymore %s\n", s2sleave->req_channel);
-
+		// when this message is received, remove the sender from the list of servers on that channel.
 	    }
 	    case 10: { // S2S say
 		struct s2s_say *s2ssay = (struct s2s_say *)raw_req;
 		printf("not unused anmore %s\n", s2ssay->req_channel);
+		// first step is to check whether there is anywhere to forward this
+			// if there are NO clients on channel and no OTHER servers on channel.. reply with a leave msg
+		// otherwise, forward the say message to any interested servers and users
+		// server must maintain list of recent unique IDs... if this say message is a duplicate....
+			// then the server discards the say message and responds to sender with a leave msg
 	    }
 	} // end switch
 	update_timestamp(&client_addr); // update timestamp for sender
-
-	//sendto(sockfd, buffer, strlen((const char *)buffer), 0, (struct sockaddr *)&client_addr, addr_len);
-// do we ever need to close the socket??
-// close(sockfd); ??
     } // end while
 } // END MAIN
-
 /* ================ HELPER FUNCTIONS ========================================= */
-
-
-
 /* DATA MANIPULATORS */
 unode *create_user(char *uname, struct sockaddr_in *addr)		  // creates (if needed) a new user and installs in list
 {
@@ -633,6 +626,9 @@ void print_debug_msg(struct sockaddr_in *recv_addr, int msg_type, char *send_or_
     char *their_ip = "127.0.0.1"; // extract from recv_addr
     int their_port = ntohs(recv_addr->sin_port); // extract from recv_addr (make sure correct byte order)
     char *type; // i.e. say, join, etc.
+    //char format_username[32];
+    //char format_channel[32];
+    //char format_msg[64];
     if (username == NULL)
 	username = "";
     if (channel == NULL)
