@@ -40,7 +40,7 @@ unode *getuserfromaddr(struct sockaddr_in *addr); // returns NULL if no such use
 void update_timestamp(struct sockaddr_in *addr); // updates timestamp for user with given address (if they exist)
 void force_logout();    // forcibly logs out users who haven't been active for at least two minutes
 void set_timer(int interval);
-
+void print_debug_msg(struct sockaddr_in recv_addr, struct request *raw_req); // prints debug diagnostic to console
 
 struct user_data {
     char username[USERNAME_MAX];
@@ -589,4 +589,66 @@ set_timer(int interval)
     if (setitimer(ITIMER_REAL, &timer, NULL) == -1) {
 	fprintf(stderr, "error calling setitimer()\n");
     }
-}   
+} 
+
+// prints debug diagnostic to console
+void print_debug_msg(struct sockaddr_in *recv_addr, struct request *raw_request, char *send_or_recv)
+{
+    int msgtype; // 1, 2, 3, ...
+    char *my_ip = "127.0.0.1"; // printable version of ip address (make global?)
+    int my_port = PORT; // same
+    char *their_ip = "127.0.0.1"; // extract from recv_addr
+    int their_port = ntohs(recv_addr->sin_port); // extract from recv_addr (make sure correct byte order)
+    char *type; // i.e. say, join, etc.
+    char *username; // if necessary 
+    char *channel;  // if necessary
+
+    switch (raw_req->req_type) {
+        case 0: {
+	    type = "Request Login";
+	    (struct request_login *)req_login = (struct request_login *)raw_req;
+	}
+	case 1: {
+	    type = "Request Logout";
+	    (struct request_logout *)req_logout = (struct request_logout *)raw_req;
+	}
+	case 2: {
+	    type = "Request Join";
+	    (struct request_join *)req_join = (struct request_join *)raw_req;
+	}
+	case 3: {
+	    type = "Request Leave";
+	    (struct request_leave *)req_leave = (struct request_leave *)raw_req;
+	}
+	case 4: {
+	    type = "Request Say";
+	    (struct request_say *)req_say = (struct request_say *)raw_req;
+	}
+	case 5: {
+	    type = "Request List";
+	    (struct request_list *)req_list = (struct request_list *)raw_req;
+	}
+	case 6: {
+	    type = "Request Who";
+	    (struct request_who *)req_who = (struct request_who *)raw_req;
+	}
+	case 7: {
+	    type = "Request Keepalive";
+	    (struct request_keep_alive *)req_keep_alive = (struct request_keep_alive *)raw_req;
+	}
+	case 8: {
+	    type = "S2S Join";
+	    (struct s2s_join *)s2sjoin = (struct s2s_join *)raw_req;
+	}
+	case 9: {
+	    type = "S2S Leave";
+	    (struct s2s_leave *)s2sleave = (struct s2s_leave *)raw_req;
+	}
+	case 10: {
+	    type = "S2S Say";
+	    (struct s2s_say *)s2ssay = (struct s2s_say *)raw_req;
+	}
+
+    } //end switch
+    
+}
