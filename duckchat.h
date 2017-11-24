@@ -106,7 +106,6 @@ struct s2s_say { // 10
         char req_text[SAY_MAX];
 } packed;
 
-}
 
 /* This structure is used for a generic text type, to the client. */
 struct text {

@@ -40,7 +40,7 @@ unode *getuserfromaddr(struct sockaddr_in *addr); // returns NULL if no such use
 void update_timestamp(struct sockaddr_in *addr); // updates timestamp for user with given address (if they exist)
 void force_logout();    // forcibly logs out users who haven't been active for at least two minutes
 void set_timer(int interval);
-void print_debug_msg(struct sockaddr_in recv_addr, struct request *raw_req); // prints debug diagnostic to console
+void print_debug_msg(struct sockaddr_in *recv_addr, int msg_type, char *send_or_recv, char *username, char *channel, char *message);
 
 struct user_data {
     char username[USERNAME_MAX];
@@ -120,7 +120,7 @@ main(int argc, char **argv) {
 	    case 0: {
 		struct request_login *login = (struct request_login *)raw_req;
 		if ((getuserfromaddr(&client_addr) == NULL) && (find_user(login->req_username, uhead) == NULL)) {
-		    printf("Logging in user %s\n", login->req_username);
+		    print_debug_msg(&client_addr, 0, "recv", login->req_username, NULL, NULL);
 		    create_user(login->req_username, &client_addr);
 		}
 		else {
@@ -130,10 +130,12 @@ main(int argc, char **argv) {
 	    }
 	    case 1: {
 		unode *unode_p = getuserfromaddr(&client_addr);
+		print_debug_msg(&client_addr, 1, "recv", (unode_p->u)->username, NULL, NULL);
 		if (unode_p == NULL) {
 		    printf("Can't log out user because they weren't logged in.\n");
 		    break;
 		}
+		
 		delete_user((unode_p->u)->username);
 		break;
 	    }
@@ -247,6 +249,20 @@ main(int argc, char **argv) {
 	        sendto(sockfd, whomsg, packetsize, 0, (const struct sockaddr *)&client_addr, addr_len);
 	        free(whomsg);	
 		break;
+	    }
+	    case 8: { // S2S join
+		struct s2s_join *s2sjoin = (struct s2s_join *)raw_req;
+		printf("not unused anymore %s\n", s2sjoin->req_channel);
+		
+	    }
+	    case 9: { // S2S leave
+		struct s2s_leave *s2sleave = (struct s2s_leave *)raw_req;
+		printf("not unused anymore %s\n", s2sleave->req_channel);
+
+	    }
+	    case 10: { // S2S say
+		struct s2s_say *s2ssay = (struct s2s_say *)raw_req;
+		printf("not unused anmore %s\n", s2ssay->req_channel);
 	    }
 	} // end switch
 	update_timestamp(&client_addr); // update timestamp for sender
@@ -592,63 +608,37 @@ set_timer(int interval)
 } 
 
 // prints debug diagnostic to console
-void print_debug_msg(struct sockaddr_in *recv_addr, struct request *raw_request, char *send_or_recv)
+void print_debug_msg(struct sockaddr_in *recv_addr, int msg_type, char *send_or_recv, char *username, char *channel, char *message)
 {
-    int msgtype; // 1, 2, 3, ...
     char *my_ip = "127.0.0.1"; // printable version of ip address (make global?)
     int my_port = PORT; // same
     char *their_ip = "127.0.0.1"; // extract from recv_addr
     int their_port = ntohs(recv_addr->sin_port); // extract from recv_addr (make sure correct byte order)
     char *type; // i.e. say, join, etc.
-    char *username; // if necessary 
-    char *channel;  // if necessary
 
-    switch (raw_req->req_type) {
-        case 0: {
+    switch (msg_type) {
+        case 0:
 	    type = "Request Login";
-	    (struct request_login *)req_login = (struct request_login *)raw_req;
-	}
-	case 1: {
+	case 1:
 	    type = "Request Logout";
-	    (struct request_logout *)req_logout = (struct request_logout *)raw_req;
-	}
-	case 2: {
+	case 2:
 	    type = "Request Join";
-	    (struct request_join *)req_join = (struct request_join *)raw_req;
-	}
-	case 3: {
+	case 3:
 	    type = "Request Leave";
-	    (struct request_leave *)req_leave = (struct request_leave *)raw_req;
-	}
-	case 4: {
+	case 4:
 	    type = "Request Say";
-	    (struct request_say *)req_say = (struct request_say *)raw_req;
-	}
-	case 5: {
+	case 5:
 	    type = "Request List";
-	    (struct request_list *)req_list = (struct request_list *)raw_req;
-	}
-	case 6: {
+	case 6:
 	    type = "Request Who";
-	    (struct request_who *)req_who = (struct request_who *)raw_req;
-	}
-	case 7: {
+	case 7:
 	    type = "Request Keepalive";
-	    (struct request_keep_alive *)req_keep_alive = (struct request_keep_alive *)raw_req;
-	}
-	case 8: {
+	case 8:
 	    type = "S2S Join";
-	    (struct s2s_join *)s2sjoin = (struct s2s_join *)raw_req;
-	}
-	case 9: {
+	case 9:
 	    type = "S2S Leave";
-	    (struct s2s_leave *)s2sleave = (struct s2s_leave *)raw_req;
-	}
-	case 10: {
+	case 10:
 	    type = "S2S Say";
-	    (struct s2s_say *)s2ssay = (struct s2s_say *)raw_req;
-	}
-
     } //end switch
-    
+    printf("%s:%d  %s:%d %s %s %s %s %s\n", my_ip, my_port, their_ip, their_port, send_or_recv, type, username, channel, message);
 }
