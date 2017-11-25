@@ -4,13 +4,8 @@ Author: Amie Corso
 Fall 2017
 
 TODO: 
-update add/remove channel/user functions to include servers??
-complete necessary functions for adding servers to channel and removing them from channels...
-get recent-ID data structure going
-- modular indexing
-- generate_ID
-- check_ID
-     
+0-out the long long ID data structure
+finish case 10 (say forwarding)
 update original join/say/login etc. messages to handle necessary S2S communication
 */
 #include <stdio.h>
@@ -55,7 +50,6 @@ void force_logout();    // forcibly logs out users who haven't been active for a
 void set_timer(int interval);
 void print_debug_msg(struct sockaddr_in *recv_addr, int msg_type, char *send_or_recv, char *username, char *channel, char *message);
 int checkID(long long ID); // returns 1 if ID is found, 0 if not
-void storeID(long long ID); // stores ID in recentIDs
 long long generateID(void); // generates random 64-bit ID for tagging say messages
 // STRUCTS
 struct user_data {
@@ -321,7 +315,7 @@ main(int argc, char **argv) {
 		// do we need to first check if this server is legit??
 		server *sender = find_server(&client_addr);
 		if (sender == NULL) {
-		    printf("Unrecognized sender\n");
+		    printf("Unrecognized server sent join message\n");
 		    break;
 		}
 		cnode *cnode_p = find_channel(s2sjoin->req_channel, chead); // search for the channel
@@ -331,25 +325,50 @@ main(int argc, char **argv) {
 		else {
 		    cnode_p = create_channel(s2sjoin->req_channel); // create the channel
                     add_stoch(sender, cnode_p); // subscribe the sender to this channel
-		    // forward the join message to all connected interfaces	
-		    // and add all of them to the channel too
+		    for (i = 0; i < neighborcount; i++) { // send each neighbor a join and subscribe them to channel
+	                sendto(sockfd, s2sjoin, sizeof(struct s2s_join), 0, (const struct sockaddr *)&servers[i].remote_addr, addr_len);
+			add_stoch(&servers[i], cnode_p);
+		    }
 		}
 		break;
 	    }
 	    case 9: { // S2S leave
 		struct s2s_leave *s2sleave = (struct s2s_leave *)raw_req;
-		printf("not unused anymore %s\n", s2sleave->req_channel);
-		// when this message is received, remove the sender from the list of servers on that channel.
+		server *sender = find_server(&client_addr);
+		if (sender == NULL) {
+		    printf("Unrecognized server sent leave message\n");
+		    break;
+		}
+		cnode *cnode_p = find_channel(s2sleave->req_channel, chead); // search for the channel
+		if (cnode_p == NULL) { // then we do not actually have this channel
+		    break;		// do nothing
+		}
+		rm_sfromch(sender, cnode_p); // remove sender from list
 	    }
 	    case 10: { // S2S say
 		struct s2s_say *s2ssay = (struct s2s_say *)raw_req;
-		printf("not unused anmore %s\n", s2ssay->req_channel);
-		// first check if this is a UNIQUE say message
-		    // if NOT, discard message and respond to sender with a leave
-		// if SO:
-		// first step is to check whether there is anywhere to forward this
+		server *sender = find_server(&client_addr);
+		if (sender == NULL) { // do we recognize this server??
+		    printf("Unrecognized server sent say message\n");
+		    break;
+		}
+		cnode *cnode_p = find_channel(s2ssay->req_channel, chead); // search for the channel
+		if (cnode_p == NULL) { // then we do not actually have this channel
+		    printf("Unrecognized channel: %s\n", s2ssay->req_channel);
+		    break;		// do nothing
+		}
+		if (checkID(s2ssay->unique_id)) { // then it's a DUPLICATE!
+		    struct s2s_leave *s2sleave = (struct s2s_leave *)malloc(sizeof(struct s2s_leave));
+		    strcpy(s2sleave->req_channel, s2ssay->req_channel);
+	            sendto(sockfd, s2sleave, sizeof(struct s2s_leave), 0, (const struct sockaddr *)&client_addr, addr_len);
+		    free(s2sleave);
+		    break; // and we're done
+		}
+		else {// it is unique
+		    // is there anywhere to forward this? (besides where it came from)
 			// if there are NO clients on channel and no OTHER servers on channel.. reply with a leave msg
 		// otherwise, forward the say message to any interested servers and users
+		}
 	    }
 	} // end switch
 	update_timestamp(&client_addr); // update timestamp for sender
@@ -783,7 +802,7 @@ void rm_sfromch(server *s, cnode *ch)
 	nextnode = nextnode->next;
     }
     if (victim == NULL) {
-	printf("Server wasn't on channel %s... not removing\n", ch->c->channelname);
+	printf("Server wasn't on channel %s... nothing to remove\n", ch->c->channelname);
 	return; // server wasn't on that channel anyway
     }
     // if found, remove victim server  node from channel's list
@@ -818,16 +837,22 @@ server *find_server(struct sockaddr_in *addr)
 
 int checkID(long long ID)
 {
-
+    int i;
+    for (i = 0; i < ID_BUFSIZE; i++) {
+	if (recentIDs[i] == ID) {
+	    return 1; // ID found
+	}
+    }
+    return 0; // ID not found
 }
 
-void storeID(long long ID)
-{
-
-}
 
 long long generateID(void)
 {
-
+    long long ID;
+    FILE *fp;
+    fp = fopen("/dev/urandom/", "r");
+    fread(&ID, 1, 8, fp);
+    return ID;
 }
 
