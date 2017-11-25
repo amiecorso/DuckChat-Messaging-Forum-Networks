@@ -92,7 +92,9 @@ int nextin = 0; 	// index into recentIDs, bounded buffer with % arithmetic
 unode *uhead = NULL; // head of my linked list of user pointers
 cnode *chead = NULL; // head of my linked list of channel pointers
 int channelcount = 0; //running count of how many channels exist.
-char HOST_NAME[64]; // is this buffer size ok??
+char HOST_NAME[64]; // store host name from argv
+struct sockaddr_in serv_addr;
+char MY_IP[INET_ADDRSTRLEN]; // printable IP address
 int PORT; 
 struct itimerval timer;
 /*========= MAIN ===============*/
@@ -114,6 +116,7 @@ main(int argc, char **argv) {
     }
     strcpy(HOST_NAME, argv[1]);
     PORT = atoi(argv[2]);
+    inet_ntop(AF_INET, (void *)&serv_addr.sin_addr, MY_IP, INET_ADDRSTRLEN); // populate printable IP
     j = 0; // index into servers array
     struct hostent *host_p;
     in_port_t remote_port;
@@ -145,7 +148,6 @@ main(int argc, char **argv) {
     }
     // end debug
 
-    struct sockaddr_in serv_addr;
     int sockfd;
     if (( sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
         perror("server: can't open socket");
@@ -755,10 +757,10 @@ set_timer(int interval)
 // prints debug diagnostic to console
 void print_debug_msg(struct sockaddr_in *recv_addr, int msg_type, char *send_or_recv, char *username, char *channel, char *message)
 {
-    char *my_ip = "127.0.0.1"; // printable version of ip address (make global?)
-    int my_port = PORT; // same
-    char *their_ip = "127.0.0.1"; // extract from recv_addr
-    int their_port = ntohs(recv_addr->sin_port); // extract from recv_addr (make sure correct byte order)
+    char remote_ip[INET_ADDRSTRLEN]; // extract from recv_addr
+    // populate the printable IP addresses
+    inet_ntop(AF_INET, (void *)&recv_addr->sin_addr, remote_ip, INET_ADDRSTRLEN);
+    int remote_port = ntohs(recv_addr->sin_port); // extract from recv_addr (make sure correct byte order)
     char *type; // i.e. say, join, etc.
     char format_username[32];
     char format_channel[32];
@@ -782,6 +784,7 @@ void print_debug_msg(struct sockaddr_in *recv_addr, int msg_type, char *send_or_
 	strcat(format_msg, message);
 	strcat(format_msg, "\"");
     }
+
     switch (msg_type) {
         case 0:
 	    type = "Request Login";
@@ -817,7 +820,7 @@ void print_debug_msg(struct sockaddr_in *recv_addr, int msg_type, char *send_or_
 	    type = "S2S Say";
 	    break;
     } //end switch
-    printf("%s:%d  %s:%d %s %s %s %s %s\n", my_ip, my_port, their_ip, their_port, send_or_recv, type, format_username, format_channel, format_msg);
+    printf("%s:%d  %s:%d %s %s %s %s %s\n", MY_IP, PORT, remote_ip, remote_port, send_or_recv, type, format_username, format_channel, format_msg);
 }
 
 void add_stoch(server *s, cnode *ch)
