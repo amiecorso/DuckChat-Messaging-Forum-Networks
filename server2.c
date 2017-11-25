@@ -28,6 +28,7 @@ get recent-ID data structure going
 #include "duckchat.h"
 #define UNUSED __attribute__((unused))
 #define BUFSIZE 512 
+#define MAXNEIGHBORS 20
 /* Forward Declarations */
 typedef struct user_data user;
 typedef struct channel_data channel;
@@ -82,6 +83,8 @@ struct slist_node {
     snode *prev;
 };
 /* GLOBALS */
+server servers[MAXNEIGHBORS]; // static array of server structs
+int neighborcount = 0; // keep track of how many servers are attached to us
 unode *uhead = NULL; // head of my linked list of user pointers
 cnode *chead = NULL; // head of my linked list of channel pointers
 int channelcount = 0; //running count of how many channels exist.
@@ -91,15 +94,51 @@ struct itimerval timer;
 /*========= MAIN ===============*/
 int
 main(int argc, char **argv) {
-    struct sockaddr_in serv_addr;
-    int sockfd;
-    // Parse command-line arguments
-    if (argc < 3) {
-        perror("Server: missing arguments.");
+    // Parse command-line arguments ====================================================
+    if ((argc < 3) || ((argc % 2) != 1)) { // if we don't have enough args or an odd number of args
+        perror("Useage: ./server <hostname> <port> [<hostname> <port> ...]");
         return 0;
+    }
+    if (argc > (MAXNEIGHBORS*2 + 3)) {
+	perror("Too many connections supplied\n");
+	return 0;
     }
     strcpy(HOST_NAME, argv[1]);
     PORT = atoi(argv[2]);
+    int i, j;
+    j = 0; // index into servers array
+    struct hostent *host_p;
+    in_port_t remote_port;
+    for (i = 3; i < argc; i += 2) {
+	host_p = gethostbyname(argv[i]); // DNS lookup for IP from hostname
+        if (!host_p) {
+            fprintf(stderr, "Could not obtain address for %s\n", argv[i]);
+            return 0;
+        } // and store it in the .sin_addr...
+	servers[j].remote_addr.sin_family = AF_INET;
+	memcpy((void *)&(servers[j].remote_addr.sin_addr), host_p->h_addr_list[0], host_p->h_length);
+	remote_port = atoi(argv[i + 1]);
+	if (remote_port) {
+	    servers[j].remote_addr.sin_port = remote_port;
+	}
+	else {
+	    fprintf(stderr, "Invalid port number: %s\n", argv[i + 1]);
+	    return 0;
+	}
+	j++; 
+	neighborcount += 1; // keep track of how many connected servers
+    } // END PARSING ======================================================================
+	
+    // DEBUG
+    char print_address[INET_ADDRSTRLEN];
+    for (i = 0; i < neighborcount; i++) {
+	inet_ntop(AF_INET, (void *)&servers[i].remote_addr.sin_addr, print_address, INET_ADDRSTRLEN);
+	printf("neighbor %d: address: %s  port: %d\n", i, print_address, servers[i].remote_addr.sin_port);
+    }
+    // end debug
+
+    struct sockaddr_in serv_addr;
+    int sockfd;
     if (( sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
         perror("server: can't open socket");
 
