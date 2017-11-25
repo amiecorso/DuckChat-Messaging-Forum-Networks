@@ -4,8 +4,6 @@ Author: Amie Corso
 Fall 2017
 
 TODO: 
-get arg parsing going for multiple servers
-get neighbors data structure going for servers
 update add/remove channel/user functions to include servers??
 complete necessary functions for adding servers to channel and removing them from channels...
 get recent-ID data structure going
@@ -29,6 +27,7 @@ get recent-ID data structure going
 #define UNUSED __attribute__((unused))
 #define BUFSIZE 512 
 #define MAXNEIGHBORS 20
+#define ID_BUFSIZE 20
 /* Forward Declarations */
 typedef struct user_data user;
 typedef struct channel_data channel;
@@ -46,6 +45,9 @@ int add_chtou(char *cname, char *uname);  // adds channel to specified user's li
 int add_utoch(char *uname, char *cname);  // adds user to specified channel's list of users
 int rm_chfromu(char *cname, char *uname); // removes channel from specified user's list of channels
 int rm_ufromch(char *uname, char *cname); // removes user from specified channel's list of users
+void add_stoch(server *s, cnode *ch);	
+void rm_sfromch(server *s, cnode *ch);
+server *find_server(struct sockaddr_in *addr);
 unode *getuserfromaddr(struct sockaddr_in *addr); // returns NULL if no such user by address, unode * otherwise
 void update_timestamp(struct sockaddr_in *addr); // updates timestamp for user with given address (if they exist)
 void force_logout();    // forcibly logs out users who haven't been active for at least two minutes
@@ -85,6 +87,8 @@ struct slist_node {
 /* GLOBALS */
 server servers[MAXNEIGHBORS]; // static array of server structs
 int neighborcount = 0; // keep track of how many servers are attached to us
+long long recentIDs[ID_BUFSIZE]; // keeps track of recently seen unique-IDs for say msgs
+int nextin = 0; 	// index into recentIDs, bounded buffer with % arithmetic
 unode *uhead = NULL; // head of my linked list of user pointers
 cnode *chead = NULL; // head of my linked list of channel pointers
 int channelcount = 0; //running count of how many channels exist.
@@ -313,7 +317,8 @@ main(int argc, char **argv) {
 		printf("not unused anymore %s\n", s2sjoin->req_channel);
 		// check to see if I am already subscribed to this channel.  If so, we're done.
 		// if not, subscribe to the channel (create the channel)
-			// and then forward the join message to remaining interfaces
+			// and then forward the join message to all remaining interfaces
+		// add all of these servers to this channel	
 		
 		
 	    }
@@ -372,6 +377,7 @@ cnode *create_channel(char *cname)	  // creates (if needed) a new channel and in
     strcpy(newchannel->channelname, cname);    
     newchannel->count = 0;
     newchannel->myusers = NULL; // initially no users on channel
+    newchannel->sub_servers = NULL; //initially no other servers subscribed
     // install in list of channels
     cnode *newnode = (cnode *)malloc(sizeof(cnode)); // new channel list node
     newnode->c = newchannel;
@@ -732,4 +738,65 @@ void print_debug_msg(struct sockaddr_in *recv_addr, int msg_type, char *send_or_
 	    break;
     } //end switch
     printf("%s:%d  %s:%d %s %s %s %s %s\n", my_ip, my_port, their_ip, their_port, send_or_recv, type, format_username, format_channel, format_msg);
+}
+
+void add_stoch(server *s, cnode *ch)
+{
+    channel *ch_p = ch->c;
+    snode *snode_p = (snode *)malloc(sizeof(snode));
+    snode_p->s = s;
+    snode_p->prev = NULL; // it's going in at the head
+    snode_p->next = ch_p->sub_servers; // new node points at whatever this head was pointing at
+    if (ch_p->sub_servers != NULL) { // only if head wasn't NULL do we have an item that needs to update its prev
+	(ch_p->sub_servers)->prev = snode_p;
+    }
+    ch_p->sub_servers = snode_p; // update the head of this list
+    // ?? do we need to keep a count of how many servers are on the channel?
+}
+
+
+void rm_sfromch(server *s, cnode *ch)
+{   // first find the node 
+    channel *ch_p = ch->c;   // handle on the actual channel
+    snode *nextnode = ch_p->sub_servers; // start at the head
+    snode *victim = NULL;
+    while (nextnode != NULL) {
+	if (nextnode->s == s) {
+	    victim = nextnode;
+	    break;
+	}
+	nextnode = nextnode->next;
+    }
+    if (victim == NULL) {
+	printf("Server wasn't on channel %s... not removing\n", ch->c->channelname);
+	return; // server wasn't on that channel anyway
+    }
+    // if found, remove victim server  node from channel's list
+    if ((victim->prev == NULL) && (victim->next == NULL)) { // case, ONLY NODE
+	ch_p->sub_servers = NULL; // just set the head to null
+    }
+    else if ((victim->prev == NULL) && (victim->next != NULL)) { // case: head, multiple nodes
+	//(c_node->next)->prev == NULL; // new head points back to nothing
+	ch_p->sub_servers = victim->next; // head points to next down
+    } else if ((victim->prev != NULL) && (victim->next != NULL)) { //case: middle of list
+	(victim->next)->prev = victim->prev; // bridge the gap
+	(victim->prev)->next = victim->next;
+    } else if ((victim->prev != NULL) && (victim->next == NULL)) { // case: tail, multiple nodes
+	(victim->prev)->next = NULL; // tail points out to nothing
+    }
+    // in call cases, free the list node
+    free(victim);
+    return;
+}
+
+server *find_server(struct sockaddr_in *addr)
+{
+    int i = 0;
+    for (i = 0; i < neighborcount; i++) {
+        if ((addr->sin_addr.s_addr == servers[i].remote_addr.sin_addr.s_addr) 
+			&& (addr->sin_port == servers[i].remote_addr.sin_port)) {
+	    return &servers[i];
+	}
+    }
+    return NULL;
 }
