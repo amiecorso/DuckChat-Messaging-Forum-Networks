@@ -4,7 +4,9 @@ Author: Amie Corso
 Fall 2017
 
 TODO: 
-0-out the long long ID data structure
+fix printing to :
+	- print actual IP addresses
+	- print for types text 0-3
 finish case 10 (say forwarding)
 update original join/say/login etc. messages to handle necessary S2S communication
 */
@@ -96,6 +98,11 @@ struct itimerval timer;
 /*========= MAIN ===============*/
 int
 main(int argc, char **argv) {
+    // zero recent IDs  =====================================================
+    int i, j;
+    for (i = 0; i < ID_BUFSIZE; i++) {
+	recentIDs[i] = 0;
+    }
     // Parse command-line arguments ====================================================
     if ((argc < 3) || ((argc % 2) != 1)) { // if we don't have enough args or an odd number of args
         perror("Useage: ./server <hostname> <port> [<hostname> <port> ...]");
@@ -107,7 +114,6 @@ main(int argc, char **argv) {
     }
     strcpy(HOST_NAME, argv[1]);
     PORT = atoi(argv[2]);
-    int i, j;
     j = 0; // index into servers array
     struct hostent *host_p;
     in_port_t remote_port;
@@ -357,19 +363,59 @@ main(int argc, char **argv) {
 		    printf("Unrecognized channel: %s\n", s2ssay->req_channel);
 		    break;		// do nothing
 		}
+		print_debug_msg(&client_addr, 10, "recv", s2ssay->req_username, s2ssay->req_channel, s2ssay->req_text);
+		
 		if (checkID(s2ssay->unique_id)) { // then it's a DUPLICATE!
 		    struct s2s_leave *s2sleave = (struct s2s_leave *)malloc(sizeof(struct s2s_leave));
 		    strcpy(s2sleave->req_channel, s2ssay->req_channel);
 	            sendto(sockfd, s2sleave, sizeof(struct s2s_leave), 0, (const struct sockaddr *)&client_addr, addr_len);
+		    print_debug_msg(&client_addr, 9, "send", NULL, s2sleave->req_channel, NULL);
 		    free(s2sleave);
 		    break; // and we're done
 		}
 		else {// it is unique
-		    // is there anywhere to forward this? (besides where it came from)
-			// if there are NO clients on channel and no OTHER servers on channel.. reply with a leave msg
-		// otherwise, forward the say message to any interested servers and users
-		}
-	    }
+		    int forwarded = 0;
+		    channel *ch_p = cnode_p->c; // handle on the channel
+		    // SEND TO CLIENTS
+		    struct text_say *saymsg = (struct text_say *)malloc(sizeof(struct text_say));
+		    strcpy(saymsg->txt_channel, s2ssay->req_channel);
+		    saymsg->txt_type = 0;
+		    strcpy(saymsg->txt_username, s2ssay->req_username);
+		    strcpy(saymsg->txt_text, s2ssay->req_text);
+		    // iterate through channel's users
+		    unode *nextnode = ch_p->myusers; // start at the head of the channel's list
+		    user *user_on_channel;
+                    while (nextnode != NULL) {
+		        user_on_channel = nextnode->u; // get a handle on this user
+		        printf("sending msg to user: %s\n", user_on_channel->username);
+		        // send the say msg to their address
+	                sendto(sockfd, saymsg, sizeof(struct text_say), 0, (const struct sockaddr *)&(user_on_channel->u_addr), addr_len);
+			// PUT A PRINT_DEBUG_MSG here!!
+		        nextnode = nextnode->next;		    
+			forwarded += 1; // keep track of whether this was forwarded at all
+		    }
+		    free(saymsg);
+		    // SEND TO SERVERS
+		    snode *nextserv = ch_p->sub_servers;
+		    server *serv;
+		    while (nextserv != NULL) {
+			serv = nextserv->s;
+                        if ((client_addr.sin_addr.s_addr != serv->remote_addr.sin_addr.s_addr) 
+				&& (client_addr.sin_port != serv->remote_addr.sin_port)) {
+	                    sendto(sockfd, s2ssay, sizeof(struct s2s_say), 0, (const struct sockaddr *)&(serv->remote_addr), addr_len);
+		            print_debug_msg(&(serv->remote_addr), 10, "send", s2ssay->req_username, s2ssay->req_channel, s2ssay->req_text);
+			    forwarded += 1;
+			}
+		    }  // end while
+		// if there are NO clients on channel and no OTHER servers on channel.. reply with a leave msg
+		    struct s2s_leave *s2sleave = (struct s2s_leave *)malloc(sizeof(struct s2s_leave));
+		    strcpy(s2sleave->req_channel, s2ssay->req_channel);
+	            sendto(sockfd, s2sleave, sizeof(struct s2s_leave), 0, (const struct sockaddr *)&client_addr, addr_len);
+		    print_debug_msg(&client_addr, 9, "send", NULL, s2sleave->req_channel, NULL);
+		    free(s2sleave);
+		} // end else
+		break;
+	    } // end case 10
 	} // end switch
 	update_timestamp(&client_addr); // update timestamp for sender
     } // end while
