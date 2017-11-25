@@ -11,6 +11,7 @@ get recent-ID data structure going
 - generate_ID
 - check_ID
      
+update original join/say/login etc. messages to handle necessary S2S communication
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -53,6 +54,9 @@ void update_timestamp(struct sockaddr_in *addr); // updates timestamp for user w
 void force_logout();    // forcibly logs out users who haven't been active for at least two minutes
 void set_timer(int interval);
 void print_debug_msg(struct sockaddr_in *recv_addr, int msg_type, char *send_or_recv, char *username, char *channel, char *message);
+int checkID(long long ID); // returns 1 if ID is found, 0 if not
+void storeID(long long ID); // stores ID in recentIDs
+long long generateID(void); // generates random 64-bit ID for tagging say messages
 // STRUCTS
 struct user_data {
     char username[USERNAME_MAX];
@@ -314,13 +318,18 @@ main(int argc, char **argv) {
 	    }
 	    case 8: { // S2S join
 		struct s2s_join *s2sjoin = (struct s2s_join *)raw_req;
-		printf("not unused anymore %s\n", s2sjoin->req_channel);
-		// check to see if I am already subscribed to this channel.  If so, we're done.
-		// if not, subscribe to the channel (create the channel)
-			// and then forward the join message to all remaining interfaces
-		// add all of these servers to this channel	
-		
-		
+		// do we need to first check if this server is legit??
+		cnode *cnode_p = find_channel(s2sjoin->req_channel, chead); // search for the channel
+		if (cnode_p != NULL) { // then we are already subscribed to this channel
+		    break;		// do nothing
+		}
+		else {
+		    // create the channel
+		    // subscribe the SENDER to this channel
+		    // forward the join message to all connected interfaces	
+		    // and add all of them to the channel too
+		}
+		break;
 	    }
 	    case 9: { // S2S leave
 		struct s2s_leave *s2sleave = (struct s2s_leave *)raw_req;
@@ -330,11 +339,12 @@ main(int argc, char **argv) {
 	    case 10: { // S2S say
 		struct s2s_say *s2ssay = (struct s2s_say *)raw_req;
 		printf("not unused anmore %s\n", s2ssay->req_channel);
+		// first check if this is a UNIQUE say message
+		    // if NOT, discard message and respond to sender with a leave
+		// if SO:
 		// first step is to check whether there is anywhere to forward this
 			// if there are NO clients on channel and no OTHER servers on channel.. reply with a leave msg
 		// otherwise, forward the say message to any interested servers and users
-		// server must maintain list of recent unique IDs... if this say message is a duplicate....
-			// then the server discards the say message and responds to sender with a leave msg
 	    }
 	} // end switch
 	update_timestamp(&client_addr); // update timestamp for sender
@@ -800,3 +810,19 @@ server *find_server(struct sockaddr_in *addr)
     }
     return NULL;
 }
+
+int checkID(long long ID)
+{
+
+}
+
+void storeID(long long ID)
+{
+
+}
+
+long long generateID(void)
+{
+
+}
+

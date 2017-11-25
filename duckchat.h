@@ -90,7 +90,6 @@ struct request_keep_alive {
 struct s2s_join { // 8
 	request_t req_type;
         char req_channel[CHANNEL_MAX]; 
-
 } packed;
 
 struct s2s_leave { // 9
