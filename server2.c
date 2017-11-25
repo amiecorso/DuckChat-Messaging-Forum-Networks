@@ -319,13 +319,18 @@ main(int argc, char **argv) {
 	    case 8: { // S2S join
 		struct s2s_join *s2sjoin = (struct s2s_join *)raw_req;
 		// do we need to first check if this server is legit??
+		server *sender = find_server(&client_addr);
+		if (sender == NULL) {
+		    printf("Unrecognized sender\n");
+		    break;
+		}
 		cnode *cnode_p = find_channel(s2sjoin->req_channel, chead); // search for the channel
 		if (cnode_p != NULL) { // then we are already subscribed to this channel
 		    break;		// do nothing
 		}
 		else {
-		    // create the channel
-		    // subscribe the SENDER to this channel
+		    cnode_p = create_channel(s2sjoin->req_channel); // create the channel
+                    add_stoch(sender, cnode_p); // subscribe the sender to this channel
 		    // forward the join message to all connected interfaces	
 		    // and add all of them to the channel too
 		}
