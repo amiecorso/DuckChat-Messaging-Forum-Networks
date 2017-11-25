@@ -284,17 +284,19 @@ main(int argc, char **argv) {
 		strcpy(s2ssay->req_channel, say->req_channel);
 		strcpy(s2ssay->req_text, say->req_text);
 		generateID(&(s2ssay->unique_id)); // puts the ID in this field
-		printf("here 6\n");
+		recentIDs[nextin] = s2ssay->unique_id; // store the ID
+		nextin = (nextin + 1) % ID_BUFSIZE; // update the index
 		snode *nextserv = ch_p->sub_servers;
-		printf("here 7\n");
 		server *serv;
-		printf("here 8\n");
 		while (nextserv != NULL) {
+		    printf("in the while loop...\n");
+		    printf("nextserv = %p\n", nextserv);
 		    serv = nextserv->s;
                     //if ((client_addr.sin_addr.s_addr != serv->remote_addr.sin_addr.s_addr) // don't need this because no client should ever have the same address as a server in our list.
 			//	&& (client_addr.sin_port != serv->remote_addr.sin_port)) {
-	                sendto(sockfd, s2ssay, sizeof(struct s2s_say), 0, (const struct sockaddr *)&(serv->remote_addr), addr_len);
-		        print_debug_msg(&(serv->remote_addr), 10, "send", s2ssay->req_username, s2ssay->req_channel, s2ssay->req_text);
+	            sendto(sockfd, s2ssay, sizeof(struct s2s_say), 0, (const struct sockaddr *)&(serv->remote_addr), addr_len);
+		    print_debug_msg(&(serv->remote_addr), 10, "send", s2ssay->req_username, s2ssay->req_channel, s2ssay->req_text);
+		    nextserv = nextserv->next;
 		}
 		free(saymsg);
 		free(s2ssay);
@@ -369,7 +371,7 @@ main(int argc, char **argv) {
 		}
 		cnode *cnode_p = find_channel(s2sjoin->req_channel, chead); // search for the channel
 		if (cnode_p != NULL) { // then we are already subscribed to this channel
-		    add_stoch(sender, cnode_p);
+		    //add_stoch(sender, cnode_p);
 		    break;		// do nothing
 		}
 		else {
@@ -410,10 +412,11 @@ main(int argc, char **argv) {
 		    printf("Unrecognized channel: %s\n", s2ssay->req_channel);
 		    break;		// do nothing
 		}
-		print_debug_msg(&client_addr, 10, "recv", s2ssay->req_username, s2ssay->req_channel, s2ssay->req_text);
 		
 		if (checkID(s2ssay->unique_id)) { // then it's a DUPLICATE!
+		    printf("duplicate message detected\n");
 		    struct s2s_leave *s2sleave = (struct s2s_leave *)malloc(sizeof(struct s2s_leave));
+		    s2sleave->req_type = 9;
 		    strcpy(s2sleave->req_channel, s2ssay->req_channel);
 	            sendto(sockfd, s2sleave, sizeof(struct s2s_leave), 0, (const struct sockaddr *)&client_addr, addr_len);
 		    print_debug_msg(&client_addr, 9, "send", NULL, s2sleave->req_channel, NULL);
@@ -961,12 +964,16 @@ int checkID(long long ID)
 
 void generateID(long long *ID)
 {
-    printf("genID 1\n");
+    char buffer[16];
+    long long theID;
     FILE *fp;
-    printf("genID 2\n");
-    fp = fopen("/dev/urandom/", "r");
-    printf("genID 3\n");
-    fread(ID, 1, 8, fp);
-    printf("genID 4\n");
+    fp = fopen("/dev/urandom", "r");
+    if (fp == NULL) {
+	printf("Your file pointer is null\n");
+	return;
+    }
+    fread(buffer, 8, 1, fp);
+    theID = atoll(buffer);
+    *ID = theID; 
 }
 
