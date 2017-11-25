@@ -285,6 +285,7 @@ main(int argc, char **argv) {
 		strcpy(s2ssay->req_text, say->req_text);
 		generateID(&(s2ssay->unique_id)); // puts the ID in this field
 		recentIDs[nextin] = s2ssay->unique_id; // store the ID
+		printf("case 4: s2ssay uniqueID = %lld\n", recentIDs[nextin]);
 		nextin = (nextin + 1) % ID_BUFSIZE; // update the index
 		snode *nextserv = ch_p->sub_servers;
 		server *serv;
@@ -395,6 +396,7 @@ main(int argc, char **argv) {
 		}
 		cnode *cnode_p = find_channel(s2sleave->req_channel, chead); // search for the channel
 		if (cnode_p == NULL) { // then we do not actually have this channel
+		    printf("case 9: channel was null\n");
 		    break;		// do nothing
 		}
 		rm_sfromch(sender, cnode_p); // remove sender from list
@@ -424,6 +426,7 @@ main(int argc, char **argv) {
 		    break; // and we're done
 		}
 		else {// it is unique
+		    printf("in the else statement\n");
 		    int forwarded = 0;
 		    channel *ch_p = cnode_p->c; // handle on the channel
 		    // SEND TO CLIENTS
@@ -964,16 +967,12 @@ int checkID(long long ID)
 
 void generateID(long long *ID)
 {
-    char buffer[16];
-    long long theID;
     FILE *fp;
     fp = fopen("/dev/urandom", "r");
     if (fp == NULL) {
 	printf("Your file pointer is null\n");
 	return;
     }
-    fread(buffer, 8, 1, fp);
-    theID = atoll(buffer);
-    *ID = theID; 
+    fread(ID, 8, 1, fp);
 }
 
