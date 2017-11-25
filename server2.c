@@ -4,11 +4,10 @@ Author: Amie Corso
 Fall 2017
 
 TODO: 
-fix printing to :
-	- print actual IP addresses
-	- print for types text 0-3
-finish case 10 (say forwarding)
 update original join/say/login etc. messages to handle necessary S2S communication
+handle creation of "Common"
+add timed join requests
+test test test 
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -258,6 +257,7 @@ main(int argc, char **argv) {
 		    printf("sending msg to user: %s\n", user_on_channel->username);
 		    // send the say msg to their address
 	            sendto(sockfd, saymsg, sizeof(struct text_say), 0, (const struct sockaddr *)&(user_on_channel->u_addr), addr_len);
+		    print_debug_msg(&(user_on_channel->u_addr), 11, "send", user_on_channel->username, ch_p->channelname, saymsg->txt_text);
 		    nextnode = nextnode->next;		    
 		}
 		free(saymsg);
@@ -284,6 +284,7 @@ main(int argc, char **argv) {
 		int packetsize = sizeof(struct text_list) + channelcount * sizeof(struct channel_info);
 		// send back to client
 	        sendto(sockfd, listmsg, packetsize, 0, (const struct sockaddr *)&client_addr, addr_len);
+		print_debug_msg(&client_addr, 12, "send", NULL, NULL, NULL);
 	        free(listmsg);	
 		break;
 	    }
@@ -315,13 +316,16 @@ main(int argc, char **argv) {
 		int packetsize = sizeof(struct text_who) + ch_p->count * sizeof(struct user_info);
 		// send back to client
 	        sendto(sockfd, whomsg, packetsize, 0, (const struct sockaddr *)&client_addr, addr_len);
+		print_debug_msg(&client_addr, 13, "send", NULL, who->req_channel, NULL);
 	        free(whomsg);	
 		break;
 	    }
 	    case 8: { // S2S join
 		struct s2s_join *s2sjoin = (struct s2s_join *)raw_req;
 		// do we need to first check if this server is legit??
+		print_debug_msg(&client_addr, 8, "recv", NULL, s2sjoin->req_channel, NULL);
 		server *sender = find_server(&client_addr);
+
 		if (sender == NULL) {
 		    printf("Unrecognized server sent join message\n");
 		    break;
@@ -335,6 +339,7 @@ main(int argc, char **argv) {
                     add_stoch(sender, cnode_p); // subscribe the sender to this channel
 		    for (i = 0; i < neighborcount; i++) { // send each neighbor a join and subscribe them to channel
 	                sendto(sockfd, s2sjoin, sizeof(struct s2s_join), 0, (const struct sockaddr *)&servers[i].remote_addr, addr_len);
+		        print_debug_msg(&servers[i].remote_addr, 8, "sent", NULL, s2sjoin->req_channel, NULL);
 			add_stoch(&servers[i], cnode_p);
 		    }
 		}
@@ -343,6 +348,7 @@ main(int argc, char **argv) {
 	    case 9: { // S2S leave
 		struct s2s_leave *s2sleave = (struct s2s_leave *)raw_req;
 		server *sender = find_server(&client_addr);
+		print_debug_msg(&client_addr, 9, "recv", NULL, s2sleave->req_channel, NULL);
 		if (sender == NULL) {
 		    printf("Unrecognized server sent leave message\n");
 		    break;
@@ -356,6 +362,7 @@ main(int argc, char **argv) {
 	    case 10: { // S2S say
 		struct s2s_say *s2ssay = (struct s2s_say *)raw_req;
 		server *sender = find_server(&client_addr);
+		print_debug_msg(&client_addr, 10, "recv", s2ssay->req_username, s2ssay->req_channel, s2ssay->req_text);
 		if (sender == NULL) { // do we recognize this server??
 		    printf("Unrecognized server sent say message\n");
 		    break;
@@ -392,6 +399,7 @@ main(int argc, char **argv) {
 		        printf("sending msg to user: %s\n", user_on_channel->username);
 		        // send the say msg to their address
 	                sendto(sockfd, saymsg, sizeof(struct text_say), 0, (const struct sockaddr *)&(user_on_channel->u_addr), addr_len);
+		        print_debug_msg(&(user_on_channel->u_addr), 11, "send", user_on_channel->username, ch_p->channelname, saymsg->txt_text);
 			// PUT A PRINT_DEBUG_MSG here!!
 		        nextnode = nextnode->next;		    
 			forwarded += 1; // keep track of whether this was forwarded at all
@@ -409,12 +417,14 @@ main(int argc, char **argv) {
 			    forwarded += 1;
 			}
 		    }  // end while
-		// if there are NO clients on channel and no OTHER servers on channel.. reply with a leave msg
-		    struct s2s_leave *s2sleave = (struct s2s_leave *)malloc(sizeof(struct s2s_leave));
-		    strcpy(s2sleave->req_channel, s2ssay->req_channel);
-	            sendto(sockfd, s2sleave, sizeof(struct s2s_leave), 0, (const struct sockaddr *)&client_addr, addr_len);
-		    print_debug_msg(&client_addr, 9, "send", NULL, s2sleave->req_channel, NULL);
-		    free(s2sleave);
+		    // if there are NO clients on channel and no OTHER servers on channel.. reply with a leave msg
+		    if (forwarded == 0) {
+		        struct s2s_leave *s2sleave = (struct s2s_leave *)malloc(sizeof(struct s2s_leave));
+		        strcpy(s2sleave->req_channel, s2ssay->req_channel);
+	                sendto(sockfd, s2sleave, sizeof(struct s2s_leave), 0, (const struct sockaddr *)&client_addr, addr_len);
+		        print_debug_msg(&client_addr, 9, "send", NULL, s2sleave->req_channel, NULL);
+		        free(s2sleave);
+		    }
 		} // end else
 		break;
 	    } // end case 10
@@ -818,6 +828,18 @@ void print_debug_msg(struct sockaddr_in *recv_addr, int msg_type, char *send_or_
 	    break;
 	case 10:
 	    type = "S2S Say";
+	    break;
+	case 11:   // for server-to-client
+	    type = "Text Say";
+	    break;
+	case 12:
+	    type = "Text List";
+	    break;
+	case 13:
+	    type = "Text Who";
+	    break;
+	case 14:
+	    type = "Text Error";
 	    break;
     } //end switch
     printf("%s:%d  %s:%d %s %s %s %s %s\n", MY_IP, PORT, remote_ip, remote_port, send_or_recv, type, format_username, format_channel, format_msg);
