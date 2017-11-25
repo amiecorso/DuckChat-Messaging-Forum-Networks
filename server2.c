@@ -4,7 +4,11 @@ Author: Amie Corso
 Fall 2017
 
 TODO: 
+don't send a s2s join message back to sender...
 update original join/say/login etc. messages to handle necessary S2S communication
+channels need a count of subscribed servers??
+	what happens with delete channel when it runs out of users but still needs to forward to servers??
+	need to look at client leave msg?  or inside rm_ufromch??
 handle creation of "Common"
 add timed join requests
 test test test 
@@ -51,7 +55,7 @@ void force_logout();    // forcibly logs out users who haven't been active for a
 void set_timer(int interval);
 void print_debug_msg(struct sockaddr_in *recv_addr, int msg_type, char *send_or_recv, char *username, char *channel, char *message);
 int checkID(long long ID); // returns 1 if ID is found, 0 if not
-long long generateID(void); // generates random 64-bit ID for tagging say messages
+void generateID(long long *ID); // generates random 64-bit ID for tagging say messages
 // STRUCTS
 struct user_data {
     char username[USERNAME_MAX];
@@ -128,6 +132,7 @@ main(int argc, char **argv) {
 	servers[j].remote_addr.sin_family = AF_INET;
 	memcpy((void *)&(servers[j].remote_addr.sin_addr), host_p->h_addr_list[0], host_p->h_length);
 	remote_port = atoi(argv[i + 1]);
+	remote_port = htons(remote_port);
 	if (remote_port) {
 	    servers[j].remote_addr.sin_port = remote_port;
 	}
@@ -138,8 +143,8 @@ main(int argc, char **argv) {
 	j++; 
 	neighborcount += 1; // keep track of how many connected servers
     } // END PARSING ======================================================================
-	
     // DEBUG
+    printf("neighborcount = %d\n", neighborcount);	
     char print_address[INET_ADDRSTRLEN];
     for (i = 0; i < neighborcount; i++) {
 	inet_ntop(AF_INET, (void *)&servers[i].remote_addr.sin_addr, print_address, INET_ADDRSTRLEN);
@@ -205,11 +210,23 @@ main(int argc, char **argv) {
 		unode *unode_p = getuserfromaddr(&client_addr);
 		if (unode_p == NULL) // if user doesn't exist, break
 			break;
-		// see if the channel already exists
 		print_debug_msg(&client_addr, 2, "recv", (unode_p->u)->username, join->req_channel, NULL);
+		// see if the channel already exists
 		cnode *ch_p = find_channel(join->req_channel, chead);
 		if (ch_p == NULL) {     // if the channel doesn't exist yet
-		    create_channel(join->req_channel); // create it first
+		    cnode *cnode_p = create_channel(join->req_channel); // create it first
+		    printf("created channel %s\n", join->req_channel);
+		    printf("cnode_p = %p\n", cnode_p);
+		    // and then send a join request to all server neighbors
+		    struct s2s_join *s2sjoin = (struct s2s_join *)malloc(sizeof(struct s2s_join));
+		    s2sjoin->req_type = 8;
+		    strcpy(s2sjoin->req_channel, join->req_channel);
+		    printf("created s2sjoin msg\n");
+		    for (i = 0; i < neighborcount; i++) { // send each neighbor a join and subscribe them to channel
+	                sendto(sockfd, s2sjoin, sizeof(struct s2s_join), 0, (const struct sockaddr *)&(servers[i].remote_addr), addr_len);
+		        print_debug_msg(&(servers[i].remote_addr), 8, "sent", NULL, s2sjoin->req_channel, NULL);
+			add_stoch(&servers[i], cnode_p);
+		    }
 		}
 		// add the user to the channel and the channel to the user
 		user *user_p = unode_p->u;
@@ -260,7 +277,27 @@ main(int argc, char **argv) {
 		    print_debug_msg(&(user_on_channel->u_addr), 11, "send", user_on_channel->username, ch_p->channelname, saymsg->txt_text);
 		    nextnode = nextnode->next;		    
 		}
+		// SEND TO SERVERS
+		struct s2s_say *s2ssay = (struct s2s_say *)malloc(sizeof(struct s2s_say));
+		s2ssay->req_type = 10;
+		strcpy(s2ssay->req_username, user_p->username);
+		strcpy(s2ssay->req_channel, say->req_channel);
+		strcpy(s2ssay->req_text, say->req_text);
+		generateID(&(s2ssay->unique_id)); // puts the ID in this field
+		printf("here 6\n");
+		snode *nextserv = ch_p->sub_servers;
+		printf("here 7\n");
+		server *serv;
+		printf("here 8\n");
+		while (nextserv != NULL) {
+		    serv = nextserv->s;
+                    //if ((client_addr.sin_addr.s_addr != serv->remote_addr.sin_addr.s_addr) // don't need this because no client should ever have the same address as a server in our list.
+			//	&& (client_addr.sin_port != serv->remote_addr.sin_port)) {
+	                sendto(sockfd, s2ssay, sizeof(struct s2s_say), 0, (const struct sockaddr *)&(serv->remote_addr), addr_len);
+		        print_debug_msg(&(serv->remote_addr), 10, "send", s2ssay->req_username, s2ssay->req_channel, s2ssay->req_text);
+		}
 		free(saymsg);
+		free(s2ssay);
 		break;
 	    }
 	    case 5: {
@@ -332,6 +369,7 @@ main(int argc, char **argv) {
 		}
 		cnode *cnode_p = find_channel(s2sjoin->req_channel, chead); // search for the channel
 		if (cnode_p != NULL) { // then we are already subscribed to this channel
+		    add_stoch(sender, cnode_p);
 		    break;		// do nothing
 		}
 		else {
@@ -428,6 +466,8 @@ main(int argc, char **argv) {
 		} // end else
 		break;
 	    } // end case 10
+	    //default:
+	    //	printf("Received SOMETHING\n");
 	} // end switch
 	update_timestamp(&client_addr); // update timestamp for sender
     } // end while
@@ -770,7 +810,8 @@ void print_debug_msg(struct sockaddr_in *recv_addr, int msg_type, char *send_or_
     char remote_ip[INET_ADDRSTRLEN]; // extract from recv_addr
     // populate the printable IP addresses
     inet_ntop(AF_INET, (void *)&recv_addr->sin_addr, remote_ip, INET_ADDRSTRLEN);
-    int remote_port = ntohs(recv_addr->sin_port); // extract from recv_addr (make sure correct byte order)
+    //in_port_t remote_port = ntohs(recv_addr->sin_port); // extract from recv_addr (make sure correct byte order)
+    in_port_t remote_port = recv_addr->sin_port;
     char *type; // i.e. say, join, etc.
     char format_username[32];
     char format_channel[32];
@@ -918,12 +959,14 @@ int checkID(long long ID)
 }
 
 
-long long generateID(void)
+void generateID(long long *ID)
 {
-    long long ID;
+    printf("genID 1\n");
     FILE *fp;
+    printf("genID 2\n");
     fp = fopen("/dev/urandom/", "r");
-    fread(&ID, 1, 8, fp);
-    return ID;
+    printf("genID 3\n");
+    fread(ID, 1, 8, fp);
+    printf("genID 4\n");
 }
 
