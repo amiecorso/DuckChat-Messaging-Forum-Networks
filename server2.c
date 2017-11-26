@@ -4,11 +4,13 @@ Author: Amie Corso
 Fall 2017
 
 TODO: 
-channel isn't being deleted when all connections leave it... is servercount being inc/dec correctely??
-
 clean the line numbers out of printdebug
 add timed join requests
+add to add_stoch to prevent duplicate adds
 test test test 
+- many args
+- bad args
+
 creation of common
 	- does a JOIN msg need to be sent to neighbors?  or can we all just sign each other up?
 	- I guess it's my server so it's my call.
@@ -73,7 +75,9 @@ struct channel_data {
 };
 struct server_data {
     struct sockaddr_in remote_addr;
+    struct timeval last_join; // to populate with gettimeofday() and check activity    
 };
+
 struct ulist_node {
     user *u;
     unode *next;
@@ -99,9 +103,13 @@ cnode *chead = NULL; // head of my linked list of channel pointers
 int channelcount = 0; //running count of how many channels exist.
 char HOST_NAME[64]; // store host name from argv
 struct sockaddr_in serv_addr;
+socklen_t addr_len;
 char MY_IP[INET_ADDRSTRLEN]; // printable IP address
 int PORT; 
+int sockfd;
 struct itimerval timer;
+int toggle = 1; // 1 indicates only one minute has gone by, 2 indicates two minutes
+
 /*========= MAIN ===============*/
 int
 main(int argc, char **argv) {
@@ -142,6 +150,7 @@ main(int argc, char **argv) {
 	    fprintf(stderr, "Invalid port number: %s\n", argv[i + 1]);
 	    return 0;
 	}
+	memset(&(servers[i].last_join), 0, sizeof(struct timeval));
 	j++; 
 	neighborcount += 1; // keep track of how many connected servers
     } // END PARSING ======================================================================
@@ -154,7 +163,6 @@ main(int argc, char **argv) {
     }
     // end debug
 
-    int sockfd;
     if (( sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
         perror("server: can't open socket");
 
@@ -179,7 +187,7 @@ main(int argc, char **argv) {
     unsigned char buffer[BUFSIZE]; // for incoming datagrams
     int bytecount;
     struct sockaddr_in client_addr;
-    socklen_t addr_len = sizeof(client_addr);
+    addr_len = sizeof(client_addr);
     struct request *raw_req = (struct request *)malloc(BUFSIZE);
 
     signal(SIGALRM, force_logout); // register signal handler
@@ -376,6 +384,8 @@ main(int argc, char **argv) {
 		    printf("Unrecognized server sent join message\n");
 		    break;
 		}
+	        // update server's timestamp! (got join)	
+		gettimeofday(&(sender->last_join), NULL);
 		cnode *cnode_p = find_channel(s2sjoin->req_channel, chead); // search for the channel
 		if (cnode_p != NULL) { // then we are already subscribed to this channel
 		    if (!server_on_channel(sender, cnode_p)) { // IF (and only if) our sender is not yet in our list, add them
@@ -800,22 +810,61 @@ void update_timestamp(struct sockaddr_in *addr)
 
 void force_logout(UNUSED int sig)
 {
-    struct timeval current;
-    gettimeofday(&current, NULL); 
-    
-    long unsigned elapsed_usec;
-
-    unode *nextnode = uhead; 
-    while (nextnode != NULL) {
-        user *user_p = nextnode->u;
-        elapsed_usec = (current.tv_sec * 1000000 +  current.tv_usec) - 
-                                (user_p->last_active.tv_sec * 1000000 + user_p->last_active.tv_usec);
-	if (elapsed_usec >= 120000000) {
-	    delete_user(user_p->username);
-	    printf("Forcibly logging out user %s\n", user_p->username);
+    //send join messages! (in all cases)
+    cnode *nextnode = chead; // start at the head of our channels
+    int i;
+    while (nextnode != NULL) { // go through all channels
+	channel *ch_p = nextnode->c;
+	struct s2s_join *s2sjoin = (struct s2s_join *)malloc(sizeof(struct s2s_join));
+	s2sjoin->req_type = 8;
+	strcpy(s2sjoin->req_channel, ch_p->channelname);
+	for (i = 0; i < neighborcount; i++) { // for each neighbor server
+	    sendto(sockfd, s2sjoin, sizeof(struct s2s_join), 0, (const struct sockaddr *)&servers[i].remote_addr, addr_len);
+	    print_debug_msg(&servers[i].remote_addr, 8, "(auto) sent", NULL, s2sjoin->req_channel, NULL, 388);
+	    add_stoch(&servers[i], nextnode);
 	}
-	nextnode = nextnode->next;
     }
+    if (toggle == 1) {
+	toggle = 2;// increment toggle
+    }	
+    else { // toggle == 2
+	// check to see who we need to kick off
+	// set toggle back to 1
+	toggle = 1;
+        struct timeval current;
+        gettimeofday(&current, NULL); 
+        long unsigned elapsed_usec;
+	// deal with users
+        unode *nextuser = uhead; 
+        while (nextuser != NULL) {
+            user *user_p = nextuser->u;
+            elapsed_usec = (current.tv_sec * 1000000 +  current.tv_usec) - 
+                                (user_p->last_active.tv_sec * 1000000 + user_p->last_active.tv_usec);
+	    if (elapsed_usec >= 120000000) {
+	        delete_user(user_p->username);
+	        printf("Forcibly logging out user %s\n", user_p->username);
+	    }
+	    nextuser = nextuser->next;
+        }// end while
+	// deal with servers:
+	cnode *nextchannel = chead; // we're going to go through every channel
+	while (nextchannel != NULL) {
+	    channel *ch_p = nextchannel->c;
+	    snode *nextserver = ch_p->sub_servers;
+	    while (nextserver != NULL) { // and every server on every channel
+		server *serv = nextserver->s; // get a handle on the server
+                elapsed_usec = (current.tv_sec * 1000000 +  current.tv_usec) - 
+                                (serv->last_join.tv_sec * 1000000 + serv->last_join.tv_usec);
+	        if (elapsed_usec >= 120000000) {
+		    rm_sfromch(serv, nextchannel);
+		    print_debug_msg(&(serv->remote_addr), 9, "(auto) recv", NULL, ch_p->channelname, NULL, 857);
+		}
+		nextserver = nextserver->next;
+	    }
+	    nextchannel = nextchannel->next;
+
+	} // end while
+    }// end else
 }
 
 void 
