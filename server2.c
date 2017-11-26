@@ -4,14 +4,14 @@ Author: Amie Corso
 Fall 2017
 
 TODO: 
-don't send a s2s join message back to sender...
-your ports are printing weird
 channels need a count of subscribed servers??
 	what happens with delete channel when it runs out of users but still needs to forward to servers??
 	need to look at client leave msg?  or inside rm_ufromch??
-handle creation of "Common"
 add timed join requests
 test test test 
+creation of common
+	- does a JOIN msg need to be sent to neighbors?  or can we all just sign each other up?
+	- I guess it's my server so it's my call.
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -65,7 +65,8 @@ struct user_data {
 };
 struct channel_data {
     char channelname[CHANNEL_MAX];
-    int count; // channel gets deleted when this becomes 0;  rm_ufromch decrements
+    int count; //  rm_ufromch decrements
+    int servercount; // gets deleted when this AND count (usercount) become 0
     unode *myusers; // pointer to linked list of user pointers
     snode *sub_servers; // linked list of subscribed servers to this channel.
 };
@@ -148,7 +149,7 @@ main(int argc, char **argv) {
     char print_address[INET_ADDRSTRLEN];
     for (i = 0; i < neighborcount; i++) {
 	inet_ntop(AF_INET, (void *)&servers[i].remote_addr.sin_addr, print_address, INET_ADDRSTRLEN);
-	printf("neighbor %d: address: %s  port: %d\n", i, print_address, servers[i].remote_addr.sin_port);
+	printf("neighbor %d: address: %s  port: %d\n", i, print_address, ntohs(servers[i].remote_addr.sin_port));
     }
     // end debug
 
@@ -163,7 +164,16 @@ main(int argc, char **argv) {
 
     if (bind(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
         perror("Server: can't bind local address");
-    create_channel("Common");    // default channel
+    
+    // create default channel and send join messages to neighbors
+    create_channel("Common");
+    cnode *common_p = find_channel("Common", chead); 
+    for (i = 0; i < neighborcount; i++) { // send each neighbor a join and subscribe them to channel
+	// not going to send join messages, just going to add the neighbors
+	//sendto(sockfd, s2sjoin, sizeof(struct s2s_join), 0, (const struct sockaddr *)&servers[i].remote_addr, addr_len);
+	//print_debug_msg(&servers[i].remote_addr, 8, "sent", NULL, s2sjoin->req_channel, NULL);
+	add_stoch(&servers[i], common_p);
+    }
     // for receiving messages
     unsigned char buffer[BUFSIZE]; // for incoming datagrams
     int bytecount;
@@ -285,16 +295,11 @@ main(int argc, char **argv) {
 		strcpy(s2ssay->req_text, say->req_text);
 		generateID(&(s2ssay->unique_id)); // puts the ID in this field
 		recentIDs[nextin] = s2ssay->unique_id; // store the ID
-		printf("case 4: s2ssay uniqueID = %lld\n", recentIDs[nextin]);
 		nextin = (nextin + 1) % ID_BUFSIZE; // update the index
 		snode *nextserv = ch_p->sub_servers;
 		server *serv;
 		while (nextserv != NULL) {
-		    printf("in the while loop...\n");
-		    printf("nextserv = %p\n", nextserv);
 		    serv = nextserv->s;
-                    //if ((client_addr.sin_addr.s_addr != serv->remote_addr.sin_addr.s_addr) // don't need this because no client should ever have the same address as a server in our list.
-			//	&& (client_addr.sin_port != serv->remote_addr.sin_port)) {
 	            sendto(sockfd, s2ssay, sizeof(struct s2s_say), 0, (const struct sockaddr *)&(serv->remote_addr), addr_len);
 		    print_debug_msg(&(serv->remote_addr), 10, "send", s2ssay->req_username, s2ssay->req_channel, s2ssay->req_text);
 		    nextserv = nextserv->next;
@@ -372,18 +377,19 @@ main(int argc, char **argv) {
 		}
 		cnode *cnode_p = find_channel(s2sjoin->req_channel, chead); // search for the channel
 		if (cnode_p != NULL) { // then we are already subscribed to this channel
-		    //add_stoch(sender, cnode_p);
+		    add_stoch(sender, cnode_p);
 		    break;		// do nothing
 		}
 		else {
 		    cnode_p = create_channel(s2sjoin->req_channel); // create the channel
                     add_stoch(sender, cnode_p); // subscribe the sender to this channel
 		    for (i = 0; i < neighborcount; i++) { // send each neighbor a join and subscribe them to channel
-                        if ((client_addr.sin_addr.s_addr != servers[i].remote_addr.sin_addr.s_addr) 
-				&& (client_addr.sin_port != servers[i].remote_addr.sin_port)) {
-	                sendto(sockfd, s2sjoin, sizeof(struct s2s_join), 0, (const struct sockaddr *)&servers[i].remote_addr, addr_len);
-		        print_debug_msg(&servers[i].remote_addr, 8, "sent", NULL, s2sjoin->req_channel, NULL);
-			add_stoch(&servers[i], cnode_p);
+			int equal_addr = client_addr.sin_addr.s_addr == servers[i].remote_addr.sin_addr.s_addr;
+		        int equal_ports = client_addr.sin_port == servers[i].remote_addr.sin_port;	
+			if (!equal_addr || !equal_ports) {
+	                    sendto(sockfd, s2sjoin, sizeof(struct s2s_join), 0, (const struct sockaddr *)&servers[i].remote_addr, addr_len);
+		            print_debug_msg(&servers[i].remote_addr, 8, "sent", NULL, s2sjoin->req_channel, NULL);
+			    add_stoch(&servers[i], cnode_p);
 			}
 		    }
 		}
@@ -450,16 +456,15 @@ main(int argc, char **argv) {
 		        nextnode = nextnode->next;		    
 			forwarded += 1; // keep track of whether this was forwarded at all
 		    }
-		    printf("case 4: EXITED WHILE LOOP\n");
 		    free(saymsg);
 		    // SEND TO SERVERS
 		    snode *nextserv = ch_p->sub_servers;
 		    server *serv;
 		    while (nextserv != NULL) {
-			printf("case 4: in server while loop\n");
 			serv = nextserv->s;
-                        if ((client_addr.sin_addr.s_addr != serv->remote_addr.sin_addr.s_addr) 
-				&& (client_addr.sin_port != serv->remote_addr.sin_port)) {
+			int equal_addr = client_addr.sin_addr.s_addr == servers[i].remote_addr.sin_addr.s_addr;
+		        int equal_ports = client_addr.sin_port == servers[i].remote_addr.sin_port;	
+			if (!equal_addr || !equal_ports) {
 	                    sendto(sockfd, s2ssay, sizeof(struct s2s_say), 0, (const struct sockaddr *)&(serv->remote_addr), addr_len);
 		            print_debug_msg(&(serv->remote_addr), 10, "send", s2ssay->req_username, s2ssay->req_channel, s2ssay->req_text);
 			    forwarded += 1;
@@ -469,6 +474,7 @@ main(int argc, char **argv) {
 		    // if there are NO clients on channel and no OTHER servers on channel.. reply with a leave msg
 		    if (forwarded == 0) {
 		        struct s2s_leave *s2sleave = (struct s2s_leave *)malloc(sizeof(struct s2s_leave));
+			s2sleave->req_type = 9;
 		        strcpy(s2sleave->req_channel, s2ssay->req_channel);
 	                sendto(sockfd, s2sleave, sizeof(struct s2s_leave), 0, (const struct sockaddr *)&client_addr, addr_len);
 		        print_debug_msg(&client_addr, 9, "send", NULL, s2sleave->req_channel, NULL);
@@ -519,6 +525,7 @@ cnode *create_channel(char *cname)	  // creates (if needed) a new channel and in
 	fprintf(stderr, "Error malloc'ing new channel; %s\n", cname);
     strcpy(newchannel->channelname, cname);    
     newchannel->count = 0;
+    newchannel->servercount = 0;
     newchannel->myusers = NULL; // initially no users on channel
     newchannel->sub_servers = NULL; //initially no other servers subscribed
     // install in list of channels
@@ -721,8 +728,8 @@ int rm_ufromch(char *uname, char *cname) // removes user from specified channel'
     // in call cases, free the list node
     free(u_node);
     ch_p->count -= 1;
-    if ((ch_p->count == 0) && (strcmp(ch_p->channelname, "Common") != 0))
-	delete_channel(cname);
+    if (((ch_p->count == 0) && (strcmp(ch_p->channelname, "Common") != 0)) && (ch_p->servercount == 0))
+	delete_channel(cname); // only if empty of users AND servers to forward
     return 0;
 }
 
@@ -822,7 +829,7 @@ void print_debug_msg(struct sockaddr_in *recv_addr, int msg_type, char *send_or_
     // populate the printable IP addresses
     inet_ntop(AF_INET, (void *)&recv_addr->sin_addr, remote_ip, INET_ADDRSTRLEN);
     //in_port_t remote_port = ntohs(recv_addr->sin_port); // extract from recv_addr (make sure correct byte order)
-    in_port_t remote_port = recv_addr->sin_port;
+    in_port_t remote_port = ntohs(recv_addr->sin_port);
     char *type; // i.e. say, join, etc.
     char format_username[32];
     char format_channel[32];
@@ -894,7 +901,7 @@ void print_debug_msg(struct sockaddr_in *recv_addr, int msg_type, char *send_or_
 	    type = "Text Error";
 	    break;
     } //end switch
-    printf("%s:%d  %s:%d %s %s %s %s %s\n", MY_IP, PORT, remote_ip, remote_port, send_or_recv, type, format_username, format_channel, format_msg);
+    printf("%s:%d  %s:%d %s %s%s%s%s\n", MY_IP, PORT, remote_ip, remote_port, send_or_recv, type, format_username, format_channel, format_msg);
 }
 
 void add_stoch(server *s, cnode *ch)
@@ -908,7 +915,7 @@ void add_stoch(server *s, cnode *ch)
 	(ch_p->sub_servers)->prev = snode_p;
     }
     ch_p->sub_servers = snode_p; // update the head of this list
-    // ?? do we need to keep a count of how many servers are on the channel?
+    ch_p->servercount += 1;
 }
 
 
@@ -943,6 +950,7 @@ void rm_sfromch(server *s, cnode *ch)
     }
     // in call cases, free the list node
     free(victim);
+    ch->c->servercount -= 1; // decrement servercount
     return;
 }
 
