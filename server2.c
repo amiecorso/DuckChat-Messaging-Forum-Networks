@@ -50,7 +50,6 @@ int rm_ufromch(char *uname, char *cname); // removes user from specified channel
 void add_stoch(server *s, cnode *ch);	
 void rm_sfromch(server *s, cnode *ch);
 server *find_server(struct sockaddr_in *addr);
-int server_on_channel(server *s, cnode *channel); // returns 1 if server is already part of channel's subserver list, 0 otherwise
 unode *getuserfromaddr(struct sockaddr_in *addr); // returns NULL if no such user by address, unode * otherwise
 void update_timestamp(struct sockaddr_in *addr); // updates timestamp for user with given address (if they exist)
 void force_logout();    // forcibly logs out users who haven't been active for at least two minutes
@@ -387,9 +386,7 @@ main(int argc, char **argv) {
 		gettimeofday(&(sender->last_join), NULL);
 		cnode *cnode_p = find_channel(s2sjoin->req_channel, chead); // search for the channel
 		if (cnode_p != NULL) { // then we are already subscribed to this channel
-		    if (!server_on_channel(sender, cnode_p)) { // IF (and only if) our sender is not yet in our list, add them
-		        add_stoch(sender, cnode_p);
-		    }
+		    add_stoch(sender, cnode_p); // function automatically prevents duplicates
 		    break;		// do nothing
 		}
 		else {
@@ -1033,18 +1030,6 @@ server *find_server(struct sockaddr_in *addr)
 	}
     }
     return NULL;
-}
-
-int server_on_channel(server *s, cnode *channel)
-{
-    snode *nextnode = channel->c->sub_servers; // start at head of subservers list
-    while (nextnode != NULL) {
-	if (nextnode->s == s) {
-	    return 1;
-	}
-        nextnode = nextnode->next;
-    }
-    return 0;
 }
 
  
