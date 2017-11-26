@@ -2,15 +2,8 @@
 Author: Amie Corso
 532 Intro to Networks - Program 2 
 Fall 2017
-
-TODO: 
-clean the line numbers out of printdebug
-clean up extra prints
-test test test 
-- many args
-- bad args
--free all your mallocs
 */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -51,7 +44,7 @@ unode *getuserfromaddr(struct sockaddr_in *addr); // returns NULL if no such use
 void update_timestamp(struct sockaddr_in *addr); // updates timestamp for user with given address (if they exist)
 void force_logout();    // forcibly logs out users who haven't been active for at least two minutes
 void set_timer(int interval);
-void print_debug_msg(struct sockaddr_in *recv_addr, int msg_type, char *send_or_recv, char *username, char *channel, char *message, int line);
+void print_debug_msg(struct sockaddr_in *recv_addr, int msg_type, char *send_or_recv, char *username, char *channel, char *message);
 int checkID(long long ID); // returns 1 if ID is found, 0 if not
 void generateID(long long *ID); // generates random 64-bit ID for tagging say messages
 // STRUCTS
@@ -176,8 +169,9 @@ main(int argc, char **argv) {
 	s2sjoin->req_type = 8;
 	strcpy(s2sjoin->req_channel, "Common");
 	sendto(sockfd, s2sjoin, sizeof(struct s2s_join), 0, (const struct sockaddr *)&servers[i].remote_addr, addr_len);
-	print_debug_msg(&servers[i].remote_addr, 8, "sent", NULL, s2sjoin->req_channel, NULL, 180);
+	print_debug_msg(&servers[i].remote_addr, 8, "sent", NULL, s2sjoin->req_channel, NULL);
 	add_stoch(&servers[i], common_p);
+	free(s2sjoin);
     }
     */
     // for receiving messages
@@ -201,7 +195,7 @@ main(int argc, char **argv) {
 	    case 0: {
 		struct request_login *login = (struct request_login *)raw_req;
 		if ((getuserfromaddr(&client_addr) == NULL) && (find_user(login->req_username, uhead) == NULL)) {
-		    print_debug_msg(&client_addr, 0, "recv", login->req_username, NULL, NULL, 195);
+		    print_debug_msg(&client_addr, 0, "recv", login->req_username, NULL, NULL);
 		    create_user(login->req_username, &client_addr);
 		}
 		else {
@@ -211,7 +205,7 @@ main(int argc, char **argv) {
 	    }
 	    case 1: {
 		unode *unode_p = getuserfromaddr(&client_addr);
-		print_debug_msg(&client_addr, 1, "recv", (unode_p->u)->username, NULL, NULL, 205);
+		print_debug_msg(&client_addr, 1, "recv", (unode_p->u)->username, NULL, NULL);
 		if (unode_p == NULL) {
 		    printf("Can't log out user because they weren't logged in.\n");
 		    break;
@@ -226,7 +220,7 @@ main(int argc, char **argv) {
 		unode *unode_p = getuserfromaddr(&client_addr);
 		if (unode_p == NULL) // if user doesn't exist, break
 			break;
-		print_debug_msg(&client_addr, 2, "recv", (unode_p->u)->username, join->req_channel, NULL, 222);
+		print_debug_msg(&client_addr, 2, "recv", (unode_p->u)->username, join->req_channel, NULL);
 		// see if the channel already exists
 		cnode *ch_p = find_channel(join->req_channel, chead);
 		if (ch_p == NULL) {     // if the channel doesn't exist yet
@@ -237,15 +231,15 @@ main(int argc, char **argv) {
 		    strcpy(s2sjoin->req_channel, join->req_channel);
 		    for (i = 0; i < neighborcount; i++) { // send each neighbor a join and subscribe them to channel
 	                sendto(sockfd, s2sjoin, sizeof(struct s2s_join), 0, (const struct sockaddr *)&(servers[i].remote_addr), addr_len);
-		        print_debug_msg(&(servers[i].remote_addr), 8, "sent", NULL, s2sjoin->req_channel, NULL, 234);
+		        print_debug_msg(&(servers[i].remote_addr), 8, "sent", NULL, s2sjoin->req_channel, NULL);
 			add_stoch(&servers[i], cnode_p);
 		    }
+		    free(s2sjoin);
 		}
 		// add the user to the channel and the channel to the user
 		user *user_p = unode_p->u;
 		add_utoch(user_p->username, join->req_channel);
 		add_chtou(join->req_channel, user_p->username);
-		printf("User %s joined channel %s\n", user_p->username, join->req_channel);	
 		break;
 	    }
 	    case 3: {
@@ -256,11 +250,10 @@ main(int argc, char **argv) {
 			break;
 		// if so, try to remove the user from the channel
 		user *user_p = unode_p->u;
-		print_debug_msg(&client_addr, 3, "recv", (unode_p->u)->username, leave->req_channel, NULL, 253);
+		print_debug_msg(&client_addr, 3, "recv", (unode_p->u)->username, leave->req_channel, NULL);
 		// try to remove user from channel
 		rm_ufromch(user_p->username, leave->req_channel);
 		rm_chfromu(leave->req_channel, user_p->username);
-		printf("%s left channel %s\n", user_p->username, leave->req_channel);
 		break;
 	    }
 	    case 4: {
@@ -273,7 +266,7 @@ main(int argc, char **argv) {
 		if (cnode_p == NULL)
 			break;
 		user *user_p = unode_p->u;
-		print_debug_msg(&client_addr, 4, "recv", (unode_p->u)->username, say->req_channel, say->req_text, 270);
+		print_debug_msg(&client_addr, 4, "recv", (unode_p->u)->username, say->req_channel, say->req_text);
 		struct text_say *saymsg = (struct text_say *)malloc(sizeof(struct text_say));
 		strcpy(saymsg->txt_channel, say->req_channel);
 		saymsg->txt_type = 0;
@@ -286,7 +279,7 @@ main(int argc, char **argv) {
 		    user_on_channel = nextnode->u; // get a handle on this user
 		    // send the say msg to their address
 	            sendto(sockfd, saymsg, sizeof(struct text_say), 0, (const struct sockaddr *)&(user_on_channel->u_addr), addr_len);
-		    print_debug_msg(&(user_on_channel->u_addr), 11, "send", user_on_channel->username, ch_p->channelname, saymsg->txt_text, 284);
+		    print_debug_msg(&(user_on_channel->u_addr), 11, "send", user_on_channel->username, ch_p->channelname, saymsg->txt_text);
 		    nextnode = nextnode->next;		    
 		}
 		// SEND TO SERVERS
@@ -303,7 +296,7 @@ main(int argc, char **argv) {
 		while (nextserv != NULL) {
 		    serv = nextserv->s;
 	            sendto(sockfd, s2ssay, sizeof(struct s2s_say), 0, (const struct sockaddr *)&(serv->remote_addr), addr_len);
-		    print_debug_msg(&(serv->remote_addr), 10, "send", s2ssay->req_username, s2ssay->req_channel, s2ssay->req_text, 301);
+		    print_debug_msg(&(serv->remote_addr), 10, "send", s2ssay->req_username, s2ssay->req_channel, s2ssay->req_text);
 		    nextserv = nextserv->next;
 		}
 		free(saymsg);
@@ -315,7 +308,7 @@ main(int argc, char **argv) {
 		unode *unode_p = getuserfromaddr(&client_addr);
 		if (unode_p == NULL) // if user doesn't exist, break
 			break;
-		print_debug_msg(&client_addr, 5, "recv", NULL, NULL, NULL, 313);
+		print_debug_msg(&client_addr, 5, "recv", NULL, NULL, NULL);
 		struct text_list *listmsg = (struct text_list *)malloc(sizeof(struct text_list) + channelcount * sizeof(struct channel_info));
 		memset(listmsg, 0, sizeof(struct text_list) + (channelcount * sizeof(struct channel_info)));
 		listmsg->txt_type = 1;
@@ -331,7 +324,7 @@ main(int argc, char **argv) {
 		int packetsize = sizeof(struct text_list) + channelcount * sizeof(struct channel_info);
 		// send back to client
 	        sendto(sockfd, listmsg, packetsize, 0, (const struct sockaddr *)&client_addr, addr_len);
-		print_debug_msg(&client_addr, 12, "send", NULL, NULL, NULL, 329);
+		print_debug_msg(&client_addr, 12, "send", NULL, NULL, NULL);
 	        free(listmsg);	
 		break;
 	    }
@@ -341,7 +334,7 @@ main(int argc, char **argv) {
 		unode *unode_p = getuserfromaddr(&client_addr);
 		if (unode_p == NULL) // if user doesn't exist, break
 			break;
-		print_debug_msg(&client_addr, 6, "recv", NULL, who->req_channel, NULL, 339);
+		print_debug_msg(&client_addr, 6, "recv", NULL, who->req_channel, NULL);
 		cnode *cnode_p = find_channel(who->req_channel, chead);
 		if (cnode_p == NULL) {
 		    printf("Bad who request: channel %s doesn't exist\n", who->req_channel);
@@ -363,14 +356,14 @@ main(int argc, char **argv) {
 		int packetsize = sizeof(struct text_who) + ch_p->count * sizeof(struct user_info);
 		// send back to client
 	        sendto(sockfd, whomsg, packetsize, 0, (const struct sockaddr *)&client_addr, addr_len);
-		print_debug_msg(&client_addr, 13, "send", NULL, who->req_channel, NULL, 361);
+		print_debug_msg(&client_addr, 13, "send", NULL, who->req_channel, NULL);
 	        free(whomsg);	
 		break;
 	    }
 	    case 8: { // S2S join
 		struct s2s_join *s2sjoin = (struct s2s_join *)raw_req;
 		// do we need to first check if this server is legit??
-		print_debug_msg(&client_addr, 8, "recv", NULL, s2sjoin->req_channel, NULL, 368);
+		print_debug_msg(&client_addr, 8, "recv", NULL, s2sjoin->req_channel, NULL);
 		server *sender = find_server(&client_addr);
 
 		if (sender == NULL) {
@@ -392,7 +385,7 @@ main(int argc, char **argv) {
 		        int equal_ports = client_addr.sin_port == servers[i].remote_addr.sin_port;	
 			if (!equal_addr || !equal_ports) {
 	                    sendto(sockfd, s2sjoin, sizeof(struct s2s_join), 0, (const struct sockaddr *)&servers[i].remote_addr, addr_len);
-		            print_debug_msg(&servers[i].remote_addr, 8, "sent", NULL, s2sjoin->req_channel, NULL, 388);
+		            print_debug_msg(&servers[i].remote_addr, 8, "sent", NULL, s2sjoin->req_channel, NULL);
 			    add_stoch(&servers[i], cnode_p);
 			}
 		    }
@@ -402,7 +395,7 @@ main(int argc, char **argv) {
 	    case 9: { // S2S leave
 		struct s2s_leave *s2sleave = (struct s2s_leave *)raw_req;
 		server *sender = find_server(&client_addr);
-		print_debug_msg(&client_addr, 9, "recv", NULL, s2sleave->req_channel, NULL, 404);
+		print_debug_msg(&client_addr, 9, "recv", NULL, s2sleave->req_channel, NULL);
 		if (sender == NULL) {
 		    printf("Unrecognized server sent leave message\n");
 		    break;
@@ -418,7 +411,7 @@ main(int argc, char **argv) {
 	    case 10: { // S2S say
 		struct s2s_say *s2ssay = (struct s2s_say *)raw_req;
 		server *sender = find_server(&client_addr);
-		print_debug_msg(&client_addr, 10, "recv", s2ssay->req_username, s2ssay->req_channel, s2ssay->req_text, 413);
+		print_debug_msg(&client_addr, 10, "recv", s2ssay->req_username, s2ssay->req_channel, s2ssay->req_text);
 		if (sender == NULL) { // do we recognize this server??
 		    printf("Unrecognized server sent say message\n");
 		    break;
@@ -436,7 +429,7 @@ main(int argc, char **argv) {
 		    s2sleave->req_type = 9;
 		    strcpy(s2sleave->req_channel, s2ssay->req_channel);
 	            sendto(sockfd, s2sleave, sizeof(struct s2s_leave), 0, (const struct sockaddr *)&client_addr, addr_len);
-		    print_debug_msg(&client_addr, 9, "send", NULL, s2sleave->req_channel, NULL, 430);
+		    print_debug_msg(&client_addr, 9, "send", NULL, s2sleave->req_channel, NULL);
 		    //delete_channel(s2sleave->req_channel); // get rid of channel!
 		    free(s2sleave);
 		    break; // and we're done
@@ -459,7 +452,7 @@ main(int argc, char **argv) {
 		        user_on_channel = nextnode->u; // get a handle on this user
 		        // send the say msg to their address
 	                sendto(sockfd, saymsg, sizeof(struct text_say), 0, (const struct sockaddr *)&(user_on_channel->u_addr), addr_len);
-		        print_debug_msg(&(user_on_channel->u_addr), 11, "send", user_on_channel->username, ch_p->channelname, saymsg->txt_text, 452);
+		        print_debug_msg(&(user_on_channel->u_addr), 11, "send", user_on_channel->username, ch_p->channelname, saymsg->txt_text);
 		        nextnode = nextnode->next;		    
 			forwarded += 1; // keep track of whether this was forwarded at all
 		    }
@@ -473,7 +466,7 @@ main(int argc, char **argv) {
 		        int equal_ports = client_addr.sin_port == serv->remote_addr.sin_port;	
 			if (!equal_addr || !equal_ports) {
 	                    sendto(sockfd, s2ssay, sizeof(struct s2s_say), 0, (const struct sockaddr *)&(serv->remote_addr), addr_len);
-		            print_debug_msg(&(serv->remote_addr), 10, "send", s2ssay->req_username, s2ssay->req_channel, s2ssay->req_text, 466);
+		            print_debug_msg(&(serv->remote_addr), 10, "send", s2ssay->req_username, s2ssay->req_channel, s2ssay->req_text);
 			    forwarded += 1;
 			}
 			nextserv = nextserv->next;
@@ -484,7 +477,7 @@ main(int argc, char **argv) {
 			s2sleave->req_type = 9;
 		        strcpy(s2sleave->req_channel, s2ssay->req_channel);
 	                sendto(sockfd, s2sleave, sizeof(struct s2s_leave), 0, (const struct sockaddr *)&client_addr, addr_len);
-		        print_debug_msg(&client_addr, 9, "send", NULL, s2sleave->req_channel, NULL, 487);
+		        print_debug_msg(&client_addr, 9, "send", NULL, s2sleave->req_channel, NULL);
 			delete_channel(s2sleave->req_channel); // we're a leaf anyway
 		        free(s2sleave);
 		    }
@@ -809,12 +802,11 @@ void force_logout(UNUSED int sig)
 	strcpy(s2sjoin->req_channel, ch_p->channelname);
 	for (i = 0; i < neighborcount; i++) { // for each neighbor server
 	    sendto(sockfd, s2sjoin, sizeof(struct s2s_join), 0, (const struct sockaddr *)&servers[i].remote_addr, addr_len);
-	    print_debug_msg(&servers[i].remote_addr, 8, "(auto) sent", NULL, s2sjoin->req_channel, NULL, 823);
+	    print_debug_msg(&servers[i].remote_addr, 8, "(auto) sent", NULL, s2sjoin->req_channel, NULL);
 	    add_stoch(&servers[i], nextnode);
 	}
 	nextnode = nextnode->next;
     }
-    printf("timer went off: toggle = %d\n", toggle);
     if (toggle == 1) {
 	toggle = 2;// increment toggle
     }	
@@ -848,7 +840,7 @@ void force_logout(UNUSED int sig)
                                 (serv->last_join.tv_sec * 1000000 + serv->last_join.tv_usec);
 	        if (elapsed_usec >= 120000000) {
 		    rm_sfromch(serv, nextchannel);
-		    print_debug_msg(&(serv->remote_addr), 9, "(auto) recv", NULL, ch_p->channelname, NULL, 857);
+		    print_debug_msg(&(serv->remote_addr), 9, "(auto) recv", NULL, ch_p->channelname, NULL);
 		}
 		nextserver = nextserver->next;
 	    }
@@ -870,7 +862,7 @@ set_timer(int interval)
 } 
 
 // prints debug diagnostic to console
-void print_debug_msg(struct sockaddr_in *recv_addr, int msg_type, char *send_or_recv, char *username, char *channel, char *message, int line)
+void print_debug_msg(struct sockaddr_in *recv_addr, int msg_type, char *send_or_recv, char *username, char *channel, char *message)
 {
     char remote_ip[INET_ADDRSTRLEN]; // extract from recv_addr
     // populate the printable IP addresses
@@ -948,7 +940,7 @@ void print_debug_msg(struct sockaddr_in *recv_addr, int msg_type, char *send_or_
 	    type = "Text Error";
 	    break;
     } //end switch
-    printf("%d   %s:%d  %s:%d %s %s%s%s%s\n", line, MY_IP, PORT, remote_ip, remote_port, send_or_recv, type, format_username, format_channel, format_msg);
+    printf("%s:%d  %s:%d %s %s%s%s%s\n", MY_IP, PORT, remote_ip, remote_port, send_or_recv, type, format_username, format_channel, format_msg);
 }
 
 void add_stoch(server *s, cnode *ch)
