@@ -9,10 +9,7 @@ clean up extra prints
 test test test 
 - many args
 - bad args
-
-creation of common
-	- does a JOIN msg need to be sent to neighbors?  or can we all just sign each other up?
-	- I guess it's my server so it's my call.
+-free all your mallocs
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,7 +17,7 @@ creation of common
 #include <unistd.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <sys/time.h> // select
+#include <sys/time.h> 
 #include <netinet/in.h>
 #include <netdb.h>
 #include <arpa/inet.h>
@@ -75,7 +72,6 @@ struct server_data {
     struct sockaddr_in remote_addr;
     struct timeval last_join; // to populate with gettimeofday() and check activity    
 };
-
 struct ulist_node {
     user *u;
     unode *next;
@@ -152,14 +148,13 @@ main(int argc, char **argv) {
 	j++; 
 	neighborcount += 1; // keep track of how many connected servers
     } // END PARSING ======================================================================
-    // DEBUG
-    printf("neighborcount = %d\n", neighborcount);	
+    /* DEBUG
     char print_address[INET_ADDRSTRLEN];
     for (i = 0; i < neighborcount; i++) {
 	inet_ntop(AF_INET, (void *)&servers[i].remote_addr.sin_addr, print_address, INET_ADDRSTRLEN);
 	printf("neighbor %d: address: %s  port: %d\n", i, print_address, ntohs(servers[i].remote_addr.sin_port));
     }
-    // end debug
+    end debug */
 
     if (( sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
         perror("server: can't open socket");
@@ -173,14 +168,18 @@ main(int argc, char **argv) {
         perror("Server: can't bind local address");
     
     // create default channel and send join messages to neighbors
-    create_channel("Common");
+    //create_channel("Common");
+    /* WAIT FOR CLIENT TO LOGIN TO SEND JOINS
     cnode *common_p = find_channel("Common", chead); 
     for (i = 0; i < neighborcount; i++) { // send each neighbor a join and subscribe them to channel
-	// not going to send join messages, just going to add the neighbors
-	//sendto(sockfd, s2sjoin, sizeof(struct s2s_join), 0, (const struct sockaddr *)&servers[i].remote_addr, addr_len);
-	//print_debug_msg(&servers[i].remote_addr, 8, "sent", NULL, s2sjoin->req_channel, NULL);
+	struct s2s_join *s2sjoin = (struct s2s_join *)malloc(sizeof(struct s2s_join));
+	s2sjoin->req_type = 8;
+	strcpy(s2sjoin->req_channel, "Common");
+	sendto(sockfd, s2sjoin, sizeof(struct s2s_join), 0, (const struct sockaddr *)&servers[i].remote_addr, addr_len);
+	print_debug_msg(&servers[i].remote_addr, 8, "sent", NULL, s2sjoin->req_channel, NULL, 180);
 	add_stoch(&servers[i], common_p);
     }
+    */
     // for receiving messages
     unsigned char buffer[BUFSIZE]; // for incoming datagrams
     int bytecount;
@@ -232,13 +231,10 @@ main(int argc, char **argv) {
 		cnode *ch_p = find_channel(join->req_channel, chead);
 		if (ch_p == NULL) {     // if the channel doesn't exist yet
 		    cnode *cnode_p = create_channel(join->req_channel); // create it first
-		    printf("created channel %s\n", join->req_channel);
-		    printf("cnode_p = %p\n", cnode_p);
 		    // and then send a join request to all server neighbors
 		    struct s2s_join *s2sjoin = (struct s2s_join *)malloc(sizeof(struct s2s_join));
 		    s2sjoin->req_type = 8;
 		    strcpy(s2sjoin->req_channel, join->req_channel);
-		    printf("created s2sjoin msg\n");
 		    for (i = 0; i < neighborcount; i++) { // send each neighbor a join and subscribe them to channel
 	                sendto(sockfd, s2sjoin, sizeof(struct s2s_join), 0, (const struct sockaddr *)&(servers[i].remote_addr), addr_len);
 		        print_debug_msg(&(servers[i].remote_addr), 8, "sent", NULL, s2sjoin->req_channel, NULL, 234);
@@ -288,7 +284,6 @@ main(int argc, char **argv) {
 		user *user_on_channel;
                 while (nextnode != NULL) {
 		    user_on_channel = nextnode->u; // get a handle on this user
-		    printf("sending msg to user: %s\n", user_on_channel->username);
 		    // send the say msg to their address
 	            sendto(sockfd, saymsg, sizeof(struct text_say), 0, (const struct sockaddr *)&(user_on_channel->u_addr), addr_len);
 		    print_debug_msg(&(user_on_channel->u_addr), 11, "send", user_on_channel->username, ch_p->channelname, saymsg->txt_text, 284);
@@ -462,7 +457,6 @@ main(int argc, char **argv) {
 		    user *user_on_channel;
                     while (nextnode != NULL) {
 		        user_on_channel = nextnode->u; // get a handle on this user
-		        printf("sending msg to user: %s\n", user_on_channel->username);
 		        // send the say msg to their address
 	                sendto(sockfd, saymsg, sizeof(struct text_say), 0, (const struct sockaddr *)&(user_on_channel->u_addr), addr_len);
 		        print_debug_msg(&(user_on_channel->u_addr), 11, "send", user_on_channel->username, ch_p->channelname, saymsg->txt_text, 452);
@@ -550,7 +544,6 @@ cnode *create_channel(char *cname)	  // creates (if needed) a new channel and in
     if (chead != NULL) 
         chead->prev = newnode;
     chead = newnode;
-    printf("Creating channel %s\n", cname);
     return newnode; // finally, return pointer to new channel
 }
 
