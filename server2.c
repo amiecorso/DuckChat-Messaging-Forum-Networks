@@ -4,6 +4,9 @@ Author: Amie Corso
 Fall 2017
 
 TODO: 
+channel isn't being deleted when all connections leave it... is servercount being inc/dec correctely??
+
+clean the line numbers out of printdebug
 add timed join requests
 test test test 
 creation of common
@@ -46,6 +49,7 @@ int rm_ufromch(char *uname, char *cname); // removes user from specified channel
 void add_stoch(server *s, cnode *ch);	
 void rm_sfromch(server *s, cnode *ch);
 server *find_server(struct sockaddr_in *addr);
+int server_on_channel(server *s, cnode *channel); // returns 1 if server is already part of channel's subserver list, 0 otherwise
 unode *getuserfromaddr(struct sockaddr_in *addr); // returns NULL if no such user by address, unode * otherwise
 void update_timestamp(struct sockaddr_in *addr); // updates timestamp for user with given address (if they exist)
 void force_logout();    // forcibly logs out users who haven't been active for at least two minutes
@@ -217,7 +221,7 @@ main(int argc, char **argv) {
 		unode *unode_p = getuserfromaddr(&client_addr);
 		if (unode_p == NULL) // if user doesn't exist, break
 			break;
-		print_debug_msg(&client_addr, 2, "recv", (unode_p->u)->username, join->req_channel, NULL, 220);
+		print_debug_msg(&client_addr, 2, "recv", (unode_p->u)->username, join->req_channel, NULL, 222);
 		// see if the channel already exists
 		cnode *ch_p = find_channel(join->req_channel, chead);
 		if (ch_p == NULL) {     // if the channel doesn't exist yet
@@ -374,7 +378,9 @@ main(int argc, char **argv) {
 		}
 		cnode *cnode_p = find_channel(s2sjoin->req_channel, chead); // search for the channel
 		if (cnode_p != NULL) { // then we are already subscribed to this channel
-		    add_stoch(sender, cnode_p);
+		    if (!server_on_channel(sender, cnode_p)) { // IF (and only if) our sender is not yet in our list, add them
+		        add_stoch(sender, cnode_p);
+		    }
 		    break;		// do nothing
 		}
 		else {
@@ -430,6 +436,7 @@ main(int argc, char **argv) {
 		    strcpy(s2sleave->req_channel, s2ssay->req_channel);
 	            sendto(sockfd, s2sleave, sizeof(struct s2s_leave), 0, (const struct sockaddr *)&client_addr, addr_len);
 		    print_debug_msg(&client_addr, 9, "send", NULL, s2sleave->req_channel, NULL, 430);
+		    //delete_channel(s2sleave->req_channel); // get rid of channel!
 		    free(s2sleave);
 		    break; // and we're done
 		}
@@ -950,7 +957,9 @@ void rm_sfromch(server *s, cnode *ch)
     }
     // in call cases, free the list node
     free(victim);
-    ch->c->servercount -= 1; // decrement servercount
+    ch_p->servercount -= 1; // decrement servercount
+    if (((ch_p->count == 0) && (strcmp(ch_p->channelname, "Common") != 0)) && (ch_p->servercount == 0))
+	delete_channel(ch_p->channelname); // only if empty of users AND servers to forward
     return;
 }
 
@@ -966,6 +975,19 @@ server *find_server(struct sockaddr_in *addr)
     return NULL;
 }
 
+int server_on_channel(server *s, cnode *channel)
+{
+    snode *nextnode = channel->c->sub_servers; // start at head of subservers list
+    while (nextnode != NULL) {
+	if (nextnode->s == s) {
+	    return 1;
+	}
+        nextnode = nextnode->next;
+    }
+    return 0;
+}
+
+ 
 int checkID(long long ID)
 {
     int i;
