@@ -401,7 +401,7 @@ main(int argc, char **argv) {
 	    case 9: { // S2S leave
 		struct s2s_leave *s2sleave = (struct s2s_leave *)raw_req;
 		server *sender = find_server(&client_addr);
-		print_debug_msg(&client_addr, 9, "recv", NULL, s2sleave->req_channel, NULL, 398);
+		print_debug_msg(&client_addr, 9, "recv", NULL, s2sleave->req_channel, NULL, 404);
 		if (sender == NULL) {
 		    printf("Unrecognized server sent leave message\n");
 		    break;
@@ -484,7 +484,8 @@ main(int argc, char **argv) {
 			s2sleave->req_type = 9;
 		        strcpy(s2sleave->req_channel, s2ssay->req_channel);
 	                sendto(sockfd, s2sleave, sizeof(struct s2s_leave), 0, (const struct sockaddr *)&client_addr, addr_len);
-		        print_debug_msg(&client_addr, 9, "send", NULL, s2sleave->req_channel, NULL, 477);
+		        print_debug_msg(&client_addr, 9, "send", NULL, s2sleave->req_channel, NULL, 487);
+			delete_channel(s2sleave->req_channel); // we're a leaf anyway
 		        free(s2sleave);
 		    }
 		} // end else
