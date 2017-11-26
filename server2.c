@@ -5,8 +5,7 @@ Fall 2017
 
 TODO: 
 clean the line numbers out of printdebug
-add timed join requests
-add to add_stoch to prevent duplicate adds
+clean up extra prints
 test test test 
 - many args
 - bad args
@@ -191,7 +190,7 @@ main(int argc, char **argv) {
     struct request *raw_req = (struct request *)malloc(BUFSIZE);
 
     signal(SIGALRM, force_logout); // register signal handler
-    set_timer(120); 
+    set_timer(60);  // goes off every 60 seconds
     while(1) {
         /* now loop, receiving data and printing what we received */
 	bytecount = recvfrom(sockfd, buffer, BUFSIZE, 0, (struct sockaddr *)&client_addr, &addr_len);
@@ -820,10 +819,12 @@ void force_logout(UNUSED int sig)
 	strcpy(s2sjoin->req_channel, ch_p->channelname);
 	for (i = 0; i < neighborcount; i++) { // for each neighbor server
 	    sendto(sockfd, s2sjoin, sizeof(struct s2s_join), 0, (const struct sockaddr *)&servers[i].remote_addr, addr_len);
-	    print_debug_msg(&servers[i].remote_addr, 8, "(auto) sent", NULL, s2sjoin->req_channel, NULL, 388);
+	    print_debug_msg(&servers[i].remote_addr, 8, "(auto) sent", NULL, s2sjoin->req_channel, NULL, 823);
 	    add_stoch(&servers[i], nextnode);
 	}
+	nextnode = nextnode->next;
     }
+    printf("timer went off: toggle = %d\n", toggle);
     if (toggle == 1) {
 	toggle = 2;// increment toggle
     }	
@@ -862,7 +863,6 @@ void force_logout(UNUSED int sig)
 		nextserver = nextserver->next;
 	    }
 	    nextchannel = nextchannel->next;
-
 	} // end while
     }// end else
 }
@@ -964,6 +964,16 @@ void print_debug_msg(struct sockaddr_in *recv_addr, int msg_type, char *send_or_
 void add_stoch(server *s, cnode *ch)
 {
     channel *ch_p = ch->c;
+    // need to prevent duplicate adds!
+    snode *nextserv = ch_p->sub_servers;
+    server *serv;
+    while (nextserv != NULL) { //going through the whole list of servers
+	serv = nextserv->s;
+	if (serv == s) {
+	    return; // server is already subscribed to this channel
+	}
+	nextserv = nextserv->next;
+    } // end while
     snode *snode_p = (snode *)malloc(sizeof(snode));
     snode_p->s = s;
     snode_p->prev = NULL; // it's going in at the head
