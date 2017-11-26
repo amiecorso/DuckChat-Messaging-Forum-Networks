@@ -5,7 +5,7 @@ Fall 2017
 
 TODO: 
 don't send a s2s join message back to sender...
-update original join/say/login etc. messages to handle necessary S2S communication
+your ports are printing weird
 channels need a count of subscribed servers??
 	what happens with delete channel when it runs out of users but still needs to forward to servers??
 	need to look at client leave msg?  or inside rm_ufromch??
@@ -379,9 +379,12 @@ main(int argc, char **argv) {
 		    cnode_p = create_channel(s2sjoin->req_channel); // create the channel
                     add_stoch(sender, cnode_p); // subscribe the sender to this channel
 		    for (i = 0; i < neighborcount; i++) { // send each neighbor a join and subscribe them to channel
+                        if ((client_addr.sin_addr.s_addr != servers[i].remote_addr.sin_addr.s_addr) 
+				&& (client_addr.sin_port != servers[i].remote_addr.sin_port)) {
 	                sendto(sockfd, s2sjoin, sizeof(struct s2s_join), 0, (const struct sockaddr *)&servers[i].remote_addr, addr_len);
 		        print_debug_msg(&servers[i].remote_addr, 8, "sent", NULL, s2sjoin->req_channel, NULL);
 			add_stoch(&servers[i], cnode_p);
+			}
 		    }
 		}
 		break;
@@ -444,15 +447,16 @@ main(int argc, char **argv) {
 		        // send the say msg to their address
 	                sendto(sockfd, saymsg, sizeof(struct text_say), 0, (const struct sockaddr *)&(user_on_channel->u_addr), addr_len);
 		        print_debug_msg(&(user_on_channel->u_addr), 11, "send", user_on_channel->username, ch_p->channelname, saymsg->txt_text);
-			// PUT A PRINT_DEBUG_MSG here!!
 		        nextnode = nextnode->next;		    
 			forwarded += 1; // keep track of whether this was forwarded at all
 		    }
+		    printf("case 4: EXITED WHILE LOOP\n");
 		    free(saymsg);
 		    // SEND TO SERVERS
 		    snode *nextserv = ch_p->sub_servers;
 		    server *serv;
 		    while (nextserv != NULL) {
+			printf("case 4: in server while loop\n");
 			serv = nextserv->s;
                         if ((client_addr.sin_addr.s_addr != serv->remote_addr.sin_addr.s_addr) 
 				&& (client_addr.sin_port != serv->remote_addr.sin_port)) {
@@ -460,6 +464,7 @@ main(int argc, char **argv) {
 		            print_debug_msg(&(serv->remote_addr), 10, "send", s2ssay->req_username, s2ssay->req_channel, s2ssay->req_text);
 			    forwarded += 1;
 			}
+			nextserv = nextserv->next;
 		    }  // end while
 		    // if there are NO clients on channel and no OTHER servers on channel.. reply with a leave msg
 		    if (forwarded == 0) {
